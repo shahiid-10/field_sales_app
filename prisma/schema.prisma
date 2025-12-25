@@ -1,0 +1,170 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      Role
+  createdAt DateTime @default(now())
+  visits    Visit[]
+  orders    Order[]
+}
+
+enum Role {
+  ADMIN
+  SALESMAN
+  STOCK_MANAGER
+}
+
+model Store {
+  id               String            @id @default(cuid())
+  name             String
+  address          String?
+  latitude         Float?
+  longitude        Float?
+  stockPositions   StockPosition[]
+  visits           Visit[]
+  orders           Order[]
+  stockAdjustments StockAdjustment[]
+}
+
+model Product {
+  id               String            @id @default(cuid())
+  name             String
+  manufacturer     String?
+  mrp              Float
+  inventory        Inventory? // Central warehouse stock
+  stockPositions   StockPosition[] // Stock at each store
+  orderItems       OrderItem[]
+  unfulfilledItems UnfulfilledItem[]
+  stockAdjustments StockAdjustment[]
+}
+
+model Inventory {
+  productId String  @unique
+  quantity  Int     @default(0)
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+model StockPosition {
+  id           String    @id @default(cuid())
+  storeId      String
+  productId    String
+  quantity     Int       @default(0)
+  expiryDate   DateTime?
+  batchNumber  String?
+  manufactured DateTime? // Optional: manufacturing date
+  store        Store     @relation(fields: [storeId], references: [id])
+  product      Product   @relation(fields: [productId], references: [id])
+
+  @@unique([storeId, productId]) // One position per product per store
+}
+
+// model Visit {
+//   id         String   @id @default(cuid())
+//   salesmanId String
+//   storeId    String
+//   timestamp  DateTime @default(now())
+//   latitude   Float
+//   longitude  Float
+//   salesman   User     @relation(fields: [salesmanId], references: [id])
+//   store      Store    @relation(fields: [storeId], references: [id])
+// }
+
+model Visit {
+  id         String   @id @default(cuid())
+  salesmanId String
+  storeId    String
+  timestamp  DateTime @default(now())
+  latitude   Float
+  longitude  Float
+  notes      String? // optional
+
+  salesman User  @relation(fields: [salesmanId], references: [id])
+  store    Store @relation(fields: [storeId], references: [id])
+
+  // NEW
+  stockAdjustments StockAdjustment[]
+}
+
+enum AdjustmentReason {
+  RESTOCK
+  RETURN
+  DAMAGE
+  EXPIRY
+  THEFT
+  COUNT_CORRECTION
+  OTHER
+}
+
+model StockAdjustment {
+  id             String            @id @default(cuid())
+  visitId        String
+  productId      String
+  storeId        String // helps with fast queries + reporting
+  quantityChange Int // positive = added to store, negative = removed
+  reason         AdjustmentReason?
+  batchNumber    String?
+  expiryDate     DateTime?
+  notes          String?
+  createdAt      DateTime          @default(now())
+
+  visit   Visit   @relation(fields: [visitId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+  store   Store   @relation(fields: [storeId], references: [id])
+
+  @@index([visitId])
+  @@index([productId, storeId])
+  @@index([storeId, createdAt(sort: Desc)])
+}
+
+model Order {
+  id         String      @id @default(cuid())
+  storeId    String
+  salesmanId String
+  status     OrderStatus @default(PENDING)
+  createdAt  DateTime    @default(now())
+  items      OrderItem[]
+  store      Store       @relation(fields: [storeId], references: [id])
+  salesman   User        @relation(fields: [salesmanId], references: [id])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId String
+  quantity  Int
+  order     Order   @relation(fields: [orderId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+model UnfulfilledItem {
+  id           String   @id @default(cuid())
+  orderId      String
+  storeId      String
+  productId    String
+  requestedQty Int
+  availableQty Int      @default(0)
+  createdAt    DateTime @default(now())
+  product      Product  @relation(fields: [productId], references: [id])
+}
+
+enum OrderStatus {
+  PENDING
+  PARTIAL
+  FULFILLED
+  UNFULFILLED
+}
