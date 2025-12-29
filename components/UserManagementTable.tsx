@@ -43,11 +43,11 @@ interface Props {
 export default function UserManagementTable({ initialUsers }: Props) {
   const getRoleBadge = (role: string | null | undefined) => {
     switch (role) {
-      case "admin":
+      case "ADMIN":
         return <Badge variant="destructive">Admin</Badge>;
-      case "stock-manager":
+      case "STOCK_MANAGER":
         return <Badge variant="secondary">Stock Manager</Badge>;
-      case "salesman":
+      case "SALESMAN":
         return <Badge variant="default">Salesman</Badge>;
       default:
         return <Badge variant="outline">No Role</Badge>;

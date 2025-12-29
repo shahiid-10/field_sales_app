@@ -1,10 +1,11 @@
-"use client"
+"use client";
+
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
-import { CalendarIcon, Plus } from "lucide-react";
+import { CalendarIcon, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -37,8 +38,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { addOrderItem, addStockAdjustment, getAllProducts } from "@/actions/product.actions";
-import { checkInAndUpdateStockPositions } from "@/actions/visit.actions";
-import { createOrder } from "@/actions/order.actions";
+import { createMultiItemOrder } from "@/actions/order.actions";
+
+// New: Cart for multi-item orders
+interface CartItem {
+  productId: string;
+  name: string;
+  mrp: number;
+  quantity: number;
+}
 
 interface Product {
   id: string;
@@ -50,7 +58,6 @@ interface Product {
 interface ProductSelectorDialogProps {
   mode: "visit" | "order";
   storeId: string;
-//   onSuccess: () => void;
 }
 
 const formSchema = z.object({
@@ -60,15 +67,12 @@ const formSchema = z.object({
   batchNumber: z.string().optional(),
 });
 
-export function ProductSelectorDialog({
-  mode,
-  storeId,
-//   onSuccess,
-}: ProductSelectorDialogProps) {
+export function ProductSelectorDialog({ mode, storeId }: ProductSelectorDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [cart, setCart] = useState<CartItem[]>([]); // only used in order mode
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -91,78 +95,99 @@ export function ProductSelectorDialog({
     setLoading(false);
   };
 
-//   const onSubmit = async (data: z.infer<typeof formSchema>) => {
-//     setLoading(true);
-//     setMessage(null);
+  const addToCart = () => {
+    const data = form.getValues();
+    const product = products.find((p) => p.id === data.productId);
+    if (!product) return;
 
-//     const formData = new FormData();
-//     formData.append("storeId", storeId);
-//     formData.append("productId", data.productId);
-//     formData.append("quantity", data.quantity.toString());
+    setCart((prev) => {
+      const existing = prev.find((item) => item.productId === data.productId);
+      if (existing) {
+        return prev.map((item) =>
+          item.productId === data.productId
+            ? { ...item, quantity: item.quantity + data.quantity }
+            : item
+        );
+      }
+      return [
+        ...prev,
+        {
+          productId: data.productId,
+          name: product.name,
+          mrp: product.mrp,
+          quantity: data.quantity,
+        },
+      ];
+    });
 
-//     if (mode === "visit") {
-//       if (data.expiryDate) {
-//         formData.append("expiryDate", format(data.expiryDate, "yyyy-MM-dd"));
-//       }
-//       formData.append("batchNumber", data.batchNumber || "");
-      
-//       const result = await checkInAndUpdateStockPositions(formData);
-//       if (result.success) {
-//         setMessage("Adjustment added!");
-//         onSuccess();
-//       } else {
-//         setMessage(result.error || "Failed");
-//       }
-//     } else {
-//       const result = await createOrder(formData);
-//       if (result.success) {
-//         setMessage("Order item added!");
-//         onSuccess();
-//       } else {
-//         setMessage(result.error || "Failed");
-//       }
-//     }
+    form.reset();
+  };
 
-//     setLoading(false);
-//     form.reset();
-//     setIsOpen(false);
-//   };
+  const removeFromCart = (productId: string) => {
+    setCart((prev) => prev.filter((item) => item.productId !== productId));
+  };
 
-    const onSubmit = async (data: z.infer<typeof formSchema>) => {
-        setLoading(true);
-        setMessage(null);
+  const onSubmit = async () => {
+    setLoading(true);
+    setMessage(null);
 
-        const formData = new FormData();
-        formData.append("storeId", storeId);
-        formData.append("productId", data.productId);
-        formData.append("quantity", data.quantity.toString());
+    if (mode === "visit") {
+      // Single item for visit (your existing logic)
+      const data = form.getValues();
+      const formData = new FormData();
+      formData.append("storeId", storeId);
+      formData.append("productId", data.productId);
+      formData.append("quantity", data.quantity.toString());
 
-        let result;
+      if (data.expiryDate) {
+        formData.append("expiryDate", format(data.expiryDate, "yyyy-MM-dd"));
+      }
+      if (data.batchNumber?.trim()) {
+        formData.append("batchNumber", data.batchNumber.trim());
+      }
 
-        if (mode === "visit") {
-            if (data.expiryDate) {
-            formData.append("expiryDate", format(data.expiryDate, "yyyy-MM-dd"));
-            }
-            if (data.batchNumber?.trim()) {
-            formData.append("batchNumber", data.batchNumber.trim());
-            }
+      const result = await addStockAdjustment(formData);
 
-            result = await addStockAdjustment(formData);
-        } else {
-            result = await addOrderItem(formData);
-        }
-
-        if (result.success) {
-            setMessage(mode === "visit" ? "Stock adjustment recorded!" : "Order item added!");
-            // onSuccess();
-        } else {
-            setMessage(result.error || "Failed to add product");
-        }
-
+      if (result.success) {
+        setMessage("Stock adjustment recorded!");
+      } else {
+        setMessage(result.error || "Failed to add adjustment");
+      }
+    } else {
+      // Multi-item for order
+      if (cart.length === 0) {
+        setMessage("Add at least one product to the order");
         setLoading(false);
-        form.reset();
-        // setIsOpen(false);
-        };
+        return;
+      }
+
+      // You can either:
+      // 1. Create one order with multiple items (recommended)
+      // 2. Loop and create single-item orders (if you prefer keeping backend simple)
+
+      // Example: Create one order with multiple items
+      // (You'll need a new server action for this - see below)
+      const result = await createMultiItemOrder({
+        storeId,
+        items: cart.map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+        })),
+      });
+
+      if (result.success) {
+        setMessage("Order placed successfully!");
+        setCart([]);
+      } else {
+        setMessage(result.error || "Failed to place order");
+      }
+    }
+
+    setLoading(false);
+    form.reset();
+    setIsOpen(false);
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
@@ -170,131 +195,137 @@ export function ProductSelectorDialog({
           <Plus className="mr-2 h-4 w-4" /> Add Product
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            Add Product {mode === "visit" ? "for Stock Adjustment" : "to Order"}
+            {mode === "visit" ? "Stock Adjustment" : "Place Order"}
           </DialogTitle>
         </DialogHeader>
 
         {loading ? (
-          <p>Loading products...</p>
+          <p>Loading...</p>
         ) : (
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <FormField
-                control={form.control}
-                name="productId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Product</FormLabel>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <FormControl>
-                          <Button variant="outline" className="w-full justify-start">
-                            {field.value ? products.find(p => p.id === field.value)?.name : "Select product"}
-                          </Button>
-                        </FormControl>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent className="w-full">
-                        {products.map((product) => (
-                          <DropdownMenuItem
-                            key={product.id}
-                            onSelect={() => field.onChange(product.id)}
-                          >
-                            {product.name} (MRP: ₹{product.mrp})
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <FormMessage />
-                  </FormItem>
+          <>
+            {/* Product Selector */}
+            <Form {...form}>
+              <form className="space-y-6">
+                <FormField
+                  control={form.control}
+                  name="productId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Product</FormLabel>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <FormControl>
+                            <Button variant="outline" className="w-full justify-start">
+                              {field.value ? products.find((p) => p.id === field.value)?.name : "Select product"}
+                            </Button>
+                          </FormControl>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="w-full max-h-60 overflow-auto">
+                          {products.map((product) => (
+                            <DropdownMenuItem
+                              key={product.id}
+                              onSelect={() => field.onChange(product.id)}
+                            >
+                              {product.name} (₹{product.mrp})
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="quantity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Quantity</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={1}
+                          {...field}
+                          onChange={(e) => field.onChange(Number(e.target.value))}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {mode === "visit" && (
+                  <>
+                    {/* Expiry & Batch fields - same as before */}
+                    {/* ... your existing expiryDate and batchNumber fields ... */}
+                  </>
                 )}
-              />
 
-              <FormField
-                control={form.control}
-                name="quantity"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Quantity</FormLabel>
-                    <FormControl>
-                      <Input 
-                        type="number" 
-                        min={1} 
-                        {...field}
-                        onChange={(e) => field.onChange(e.target.valueAsNumber)}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                {/* Add to Cart / Add Button */}
+                <Button
+                  type="button"
+                  onClick={() => {
+                    form.handleSubmit(addToCart)(); // ← safe call
+                  }}
+                  variant="secondary"
+                  className="w-full"
+                >
+                  Add to {mode === "visit" ? "Adjustment" : "Order"}
+                </Button>
+              </form>
+            </Form>
 
-              {mode === "visit" && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="expiryDate"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Expiry Date</FormLabel>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button
-                                variant="outline"
-                                className={cn(
-                                  "w-full justify-start text-left font-normal",
-                                  !field.value && "text-muted-foreground"
-                                )}
-                              >
-                                {field.value ? (
-                                  format(field.value as Date, "PPP")
-                                ) : (
-                                  <span>Pick date</span>
-                                )}
-                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0">
-                            <Calendar
-                              mode="single"
-                              selected={field.value as Date | undefined}
-                              onSelect={field.onChange}
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+            {/* Cart Preview (only for order mode) */}
+            {mode === "order" && cart.length > 0 && (
+              <div className="mt-6 border-t pt-4">
+                <h4 className="font-medium mb-3">Current Order ({cart.length} items)</h4>
+                <ul className="space-y-3">
+                  {cart.map((item) => (
+                    <li key={item.productId} className="flex justify-between items-center">
+                      <div>
+                        <span className="font-medium">{item.name}</span>
+                        <span className="text-sm text-muted-foreground ml-2">
+                          × {item.quantity} (₹{item.mrp * item.quantity})
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeFromCart(item.productId)}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
-                  <FormField
-                    control={form.control}
-                    name="batchNumber"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Batch Number</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
-              )}
+            {/* Final Submit Button */}
+            <Button
+              type="button"
+              onClick={onSubmit}
+              disabled={loading || (mode === "order" && cart.length === 0)}
+              className="w-full mt-6"
+            >
+              {loading
+                ? "Processing..."
+                : mode === "order"
+                ? `Place Order (${cart.length} items)`
+                : "Confirm Adjustment"}
+            </Button>
 
-              <Button type="submit" disabled={loading} className="w-full">
-                {loading ? "Adding..." : "Add"}
-              </Button>
-
-              {message && <p className="text-center text-sm">{message}</p>}
-            </form>
-          </Form>
+            {message && (
+              <p className={cn("text-center mt-4 text-sm", message.includes("success") ? "text-green-600" : "text-red-600")}>
+                {message}
+              </p>
+            )}
+          </>
         )}
       </DialogContent>
     </Dialog>

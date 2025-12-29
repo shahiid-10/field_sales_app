@@ -50,7 +50,7 @@ export default async function StoreVisitPage({ params }: Props) {
         )}
       </div>
 
-      <ProductSelectorDialog mode="visit" storeId={params.storeId} onSuccess={handleSuccess} />
+      <ProductSelectorDialog mode="visit" storeId={params.storeId}  />
     </div>
   );
 }

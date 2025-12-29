@@ -1,5 +1,5 @@
 // app/stores/[storeId]/orders/page.tsx
-import { getPendingOrdersForStore } from "@/actions/order.actions";
+import { getPendingOrdersAll, getPendingOrdersForStore } from "@/actions/order.actions";
 import { ProductSelectorDialog } from "@/components/ProductSelectorDialog";
 import { format } from "date-fns";
 import {
@@ -18,7 +18,8 @@ export default async function StoreOrdersPage({
 }: {
   params: { storeId: string };
 }) {
-  const orders = await getPendingOrdersForStore(params.storeId);
+  // const orders = await getPendingOrdersForStore(params.storeId);
+  const orders = await getPendingOrdersAll();
 
   return (
     <div className="container mx-auto p-6 max-w-5xl">
@@ -42,6 +43,7 @@ export default async function StoreOrdersPage({
             <TableHeader>
               <TableRow>
                 <TableHead>Order ID</TableHead>
+                <TableHead>Store</TableHead>
                 <TableHead>Salesman</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Items</TableHead>
@@ -53,6 +55,7 @@ export default async function StoreOrdersPage({
               {orders.map((order) => (
                 <TableRow key={order.id}>
                   <TableCell className="font-medium">{order.id.slice(0, 8)}...</TableCell>
+                  <TableCell>{order.storeName}</TableCell>
                   <TableCell>{order.salesmanName}</TableCell>
                   <TableCell>{format(new Date(order.createdAt), "PPP p")}</TableCell>
                   <TableCell>

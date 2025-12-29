@@ -1,74 +1,95 @@
-// import { clerkMiddleware } from '@clerk/nextjs/server';
-
-// export default clerkMiddleware();
-
-// export const config = {
-//   matcher: [
-//     // Skip Next.js internals and all static files, unless found in search params
-//     '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-//     // Always run for API routes
-//     '/(api|trpc)(.*)',
-//   ],
-// };
-
-
 // middleware.ts
-// proxy.ts (or middleware.ts)
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
-import { NextResponse } from 'next/server';
-import type { UserRole, CustomUserPublicMetadata } from '@/types/user';
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
-const isPublic = createRouteMatcher([
-  '/sign-in(.*)',
-  '/sign-up(.*)',
-  '/', // optional: make home public
-  '/stores/(.*)',
+/* ----------------------------- ROUTE MATCHERS ----------------------------- */
+
+// Public routes (NO auth)
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/api/webhooks/clerk",
 ]);
 
+// Admin-only routes
+const isAdminRoute = createRouteMatcher([
+  "/admin(.*)",
+]);
+
+// Salesman routes
 const isSalesmanRoute = createRouteMatcher([
-  '/stores/(.*)/visit',
-  '/stores/(.*)/order', // add later when you create order page
+  "/stores/(.*)/visit",
+  "/stores/(.*)/orders",
 ]);
 
+// Stock manager routes
 const isStockManagerRoute = createRouteMatcher([
-  '/inventory(.*)',
-  '/orders/fulfill(.*)',
+  "/inventory(.*)",
+  "/orders/fulfill(.*)",
 ]);
+
+/* ------------------------------- MIDDLEWARE ------------------------------- */
 
 export default clerkMiddleware(async (auth, req) => {
-  // 1. Require login for everything except public routes
-  if (!isPublic(req)) {
-    await auth.protect();
+  /* 1️⃣ Public routes → allow */
+  if (isPublicRoute(req)) {
+    return NextResponse.next();
   }
 
-  // 2. Role checks
-  // const { userId, sessionClaims } = await auth();
+  /* 2️⃣ Require authentication */
+  const { userId, sessionClaims } = await auth();
 
-  // if (userId) {
-  //   // Safe type assertion - this is the cleanest & recommended way
-  //   const metadata = sessionClaims?.public_metadata as
-  //     | CustomUserPublicMetadata
-  //     | undefined;
+  if (!userId) {
+    return NextResponse.redirect(new URL("/sign-in", req.url));
+  }
 
-  //   const role = metadata?.role;
+  /* 3️⃣ Extract role from Clerk session claims */
+  // const role =
+  //   (sessionClaims?.publicMetadata as { role?: string })?.role;
 
-  //   if (isSalesmanRoute(req) && role !== 'salesman') {
-  //     return NextResponse.json({ error: 'Salesmen only' }, { status: 403 });
-  //   }
 
-  //   if (isStockManagerRoute(req) && role !== 'stock-manager') {
-  //     return NextResponse.json({ error: 'Stock managers only' }, { status: 403 });
-  //   }
+  // const role = (sessionClaims?.public_metadata as { role?: string } | undefined)?.role; 
 
-  //   // Admins can access everything — no extra check needed
-  // }
+  const publicMetadata = sessionClaims?.public_metadata || sessionClaims?.metadata;
+  const role = (publicMetadata as { role?: string } | undefined)?.role;
+  // Debug once (remove later)
+  // console.log("Middleware role:", role);
+  // console.log("Path:", req.nextUrl.pathname);
+  // console.log(sessionClaims)
+
+  /* 4️⃣ Role-based access control */
+
+  if (isAdminRoute(req) && role !== "ADMIN") {
+    return NextResponse.json(
+      { error: "Admin access only" },
+      { status: 403 }
+    );
+  }
+
+  if (isSalesmanRoute(req) && role !== "SALESMAN") {
+    return NextResponse.json(
+      { error: "Salesman access only" },
+      { status: 403 }
+    );
+  }
+
+  if (isStockManagerRoute(req) && role !== "STOCK_MANAGER") {
+    return NextResponse.json(
+      { error: "Stock manager access only" },
+      { status: 403 }
+    );
+  }
+
+  /* 5️⃣ Allow request */
+  return NextResponse.next();
 });
+
+/* ------------------------------- CONFIG ------------------------------- */
 
 export const config = {
   matcher: [
-    // Skip Next.js internals and static files
-    '/((?!_next/static|_next/image|favicon.ico).*)',
-    // Always run for API routes
-    '/(api|trpc)(.*)',
+    "/((?!_next/static|_next/image|favicon.ico).*)",
+    "/(api|trpc)(.*)",
   ],
 };

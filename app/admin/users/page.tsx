@@ -14,7 +14,7 @@ export default async function AdminUsersPage() {
 
   console.log("Current user metadata:", user?.publicMetadata); // ← check this in terminal
 
-  if (!user || user.publicMetadata.role !== "admin") {
+  if (!user || user.publicMetadata.role !== "ADMIN") {
     console.log("Redirecting - role is:", user?.publicMetadata?.role); // ← also log this
     redirect("/");
   }

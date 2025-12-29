@@ -14,13 +14,14 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  role      Role
-  createdAt DateTime @default(now())
-  visits    Visit[]
-  orders    Order[]
+  id          String   @id @default(cuid())
+  clerkUserId String?   @unique
+  email       String   @unique
+  name        String?
+  role        Role
+  createdAt   DateTime @default(now())
+  visits      Visit[]
+  orders      Order[]
 }
 
 enum Role {

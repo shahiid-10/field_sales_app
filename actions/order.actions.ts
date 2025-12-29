@@ -4,6 +4,9 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { OrderStatus } from "@/lib/generated/prisma/enums";
+import { auth } from "@clerk/nextjs/server";
+import { error } from "console";
+import { success } from "zod";
 
 export async function createOrder(formData: FormData) {
   const storeId = formData.get("storeId") as string;
@@ -70,15 +73,17 @@ export async function getPendingOrdersForStore(storeId: string) {
   }));
 }
 
+
+
 // Update order status (used by stock manager)
 export async function updateOrderStatus(orderId: string, newStatus: string) {
   if (!["PENDING", "PARTIAL", "FULFILLED", "UNFULFILLED"].includes(newStatus)) {
     throw new Error("Invalid order status");
   }
-  
+
   await prisma.order.update({
     where: { id: orderId },
-    data: { status: newStatus as OrderStatus},
+    data: { status: newStatus as OrderStatus },
   });
 
   // Revalidate the orders page for this store
@@ -87,3 +92,143 @@ export async function updateOrderStatus(orderId: string, newStatus: string) {
   revalidatePath("/stores/[storeId]/orders", "page");
 }
 
+export async function getOrdersGroupedByStore() {
+  const storesWithOrders = await prisma.store.findMany({
+    where: {
+      orders: {
+        some: {
+          status: { not: "FULFILLED" }, // only active orders
+        },
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      orders: {
+        where: {
+          status: { not: "FULFILLED" },
+        },
+        include: {
+          items: {
+            include: {
+              product: {
+                select: {
+                  name: true,
+                  mrp: true,
+                },
+              },
+            },
+          },
+          salesman: {
+            select: {
+              name: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      },
+    },
+    orderBy: {
+      name: "asc",
+    },
+  });
+
+  return storesWithOrders.map((store) => ({
+    storeId: store.id,
+    storeName: store.name,
+    storeAddress: store.address,
+    orders: store.orders.map((order) => ({
+      id: order.id,
+      salesmanName: order.salesman?.name || "Unknown",
+      createdAt: order.createdAt.toISOString(),
+      status: order.status,
+      items: order.items.map((item) => ({
+        productName: item.product.name,
+        mrp: item.product.mrp,
+        quantity: item.quantity,
+      })),
+    })),
+  }));
+}
+
+
+export async function getPendingOrdersAll() {
+  const orders = await prisma.order.findMany({
+    where: {
+      status: { not: "FULFILLED" },
+    },
+    include: {
+      store: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      salesman: {
+        select: {
+          name: true,
+        },
+      },
+      items: {
+        include: {
+          product: {
+            select: {
+              name: true,
+              mrp: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+
+  return orders.map((order) => ({
+    id: order.id,
+    storeId: order.store.id,
+    storeName: order.store.name,
+    salesmanName: order.salesman?.name ?? "Unknown",
+    createdAt: order.createdAt.toISOString(),
+    status: order.status,
+    items: order.items.map((item) => ({
+      productName: item.product.name,
+      mrp: item.product.mrp,
+      quantity: item.quantity,
+    })),
+  }));
+}
+
+
+export async function createMultiItemOrder(input: {
+  storeId: string;
+  items: { productId: string; quantity: number }[];
+}) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Unauthorized");
+
+  try {
+    const order = await prisma.order.create({
+      data: {
+        storeId: input.storeId,
+        salesmanId: userId,
+        status: "PENDING",
+        items: {
+          create: input.items,
+        },
+      },
+    });
+
+    revalidatePath(`/stores/${input.storeId}/orders`);
+    return { success: true, orderId: order.id };
+  } catch (error) {
+    console.error(error)
+    return { success: false, error: "error" };
+  }
+
+  
+}

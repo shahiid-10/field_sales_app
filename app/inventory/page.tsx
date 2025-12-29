@@ -1,8 +1,6 @@
 // app/inventory/page.tsx
 import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { format } from "date-fns";
-
 import {
   Card,
   CardContent,
@@ -30,9 +28,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Package2, AlertTriangle, DollarSign, PlusCircle, CalendarClock } from "lucide-react";
+import { Package2, AlertTriangle, DollarSign, PlusCircle } from "lucide-react";
+import { useState } from "react";
 
-// Dummy inventory data (now includes expiryDate)
+// Dummy inventory data
 const dummyInventory = [
   {
     id: "prod-1",
@@ -41,7 +40,6 @@ const dummyInventory = [
     mrp: 50,
     quantity: 1200,
     lowStockThreshold: 200,
-    expiryDate: new Date("2026-06-30"), // June 30, 2026
   },
   {
     id: "prod-2",
@@ -50,7 +48,6 @@ const dummyInventory = [
     mrp: 120,
     quantity: 450,
     lowStockThreshold: 100,
-    expiryDate: new Date("2025-11-15"), // November 15, 2025
   },
   {
     id: "prod-3",
@@ -59,16 +56,6 @@ const dummyInventory = [
     mrp: 80,
     quantity: 30,
     lowStockThreshold: 50,
-    expiryDate: new Date("2025-09-30"), // September 30, 2025 (near expiry)
-  },
-  {
-    id: "prod-4",
-    name: "Antibiotic Ointment",
-    manufacturer: "HealthPlus",
-    mrp: 150,
-    quantity: 800,
-    lowStockThreshold: 150,
-    expiryDate: new Date("2027-03-10"), // March 10, 2027
   },
 ];
 
@@ -77,7 +64,7 @@ export default async function InventoryPage() {
 
   if (!user) redirect("/sign-in");
 
-  // Everyone can view, only stock-manager + admin can add
+  // Everyone can view, but only stock-manager + admin can add stock
   const canAddStock = ["stock-manager", "admin"].includes(
     user.publicMetadata.role as string
   );
@@ -156,7 +143,7 @@ export default async function InventoryPage() {
 
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label htmlFor="expiry" className="text-right">
-                    Expiry Date
+                    Expiry
                   </Label>
                   <Input id="expiry" type="date" className="col-span-3" />
                 </div>
@@ -204,13 +191,11 @@ export default async function InventoryPage() {
         </Card>
       </div>
 
-      {/* Inventory Table - with new Expiry Date column */}
+      {/* Inventory Table */}
       <Card>
         <CardHeader>
           <CardTitle>Stock Details</CardTitle>
-          <CardDescription>
-            Current quantities, expiry dates, and low stock alerts
-          </CardDescription>
+          <CardDescription>Current quantities and low stock alerts</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -221,14 +206,12 @@ export default async function InventoryPage() {
                   <TableHead>Manufacturer</TableHead>
                   <TableHead className="text-right">MRP</TableHead>
                   <TableHead className="text-right">Quantity</TableHead>
-                  <TableHead className="text-right">Expiry Date</TableHead>
                   <TableHead className="text-right">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {dummyInventory.map((item) => {
                   const isLowStock = item.quantity <= item.lowStockThreshold;
-                  const isNearExpiry = item.expiryDate && new Date(item.expiryDate) < new Date("2026-01-01");
 
                   return (
                     <TableRow key={item.id}>
@@ -239,19 +222,10 @@ export default async function InventoryPage() {
                         {item.quantity}
                       </TableCell>
                       <TableCell className="text-right">
-                        {item.expiryDate ? format(item.expiryDate, "MMM dd, yyyy") : "—"}
-                      </TableCell>
-                      <TableCell className="text-right flex justify-end gap-2">
-                        {isLowStock && (
-                          <Badge variant="destructive">Low Stock</Badge>
-                        )}
-                        {isNearExpiry && (
-                          <Badge variant="outline" className="border-orange-500 text-orange-700">
-                            Near Expiry
-                          </Badge>
-                        )}
-                        {!isLowStock && !isNearExpiry && (
-                          <Badge variant="secondary">OK</Badge>
+                        {isLowStock ? (
+                          <Badge variant="destructive">Low Stock!</Badge>
+                        ) : (
+                          <Badge variant="secondary">In Stock</Badge>
                         )}
                       </TableCell>
                     </TableRow>
