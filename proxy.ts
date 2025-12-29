@@ -67,19 +67,19 @@ export default clerkMiddleware(async (auth, req) => {
     );
   }
 
-  if (isSalesmanRoute(req) && role !== "SALESMAN") {
-    return NextResponse.json(
-      { error: "Salesman access only" },
-      { status: 403 }
-    );
-  }
+  // if (isSalesmanRoute(req) && role !== "SALESMAN") {
+  //   return NextResponse.json(
+  //     { error: "Salesman access only" },
+  //     { status: 403 }
+  //   );
+  // }
 
-  if (isStockManagerRoute(req) && role !== "STOCK_MANAGER") {
-    return NextResponse.json(
-      { error: "Stock manager access only" },
-      { status: 403 }
-    );
-  }
+  // if (isStockManagerRoute(req) && role !== "STOCK_MANAGER") {
+  //   return NextResponse.json(
+  //     { error: "Stock manager access only" },
+  //     { status: 403 }
+  //   );
+  // }
 
   /* 5️⃣ Allow request */
   return NextResponse.next();

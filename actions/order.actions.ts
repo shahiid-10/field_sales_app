@@ -212,10 +212,24 @@ export async function createMultiItemOrder(input: {
   if (!userId) throw new Error("Unauthorized");
 
   try {
+
+    const salesman = await prisma.user.findFirst({
+      where: { clerkUserId: userId},
+      select: { id: true }
+    })
+
+    if (!salesman) {
+      return {
+        success: false,
+        error: "Your account not found in database. Contact support.",
+      };
+    }
+
+
     const order = await prisma.order.create({
       data: {
         storeId: input.storeId,
-        salesmanId: userId,
+        salesmanId: salesman.id,
         status: "PENDING",
         items: {
           create: input.items,

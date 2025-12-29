@@ -102,6 +102,69 @@ export async function addStore(formData: FormData) {
   }
 }
 
+// Schema for updating a product
+const updateProductSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1, "Name is required"),
+  manufacturer: z.string().optional(),
+  mrp: z.coerce.number().positive("MRP must be positive"),
+});
+
+// Delete product
+export async function deleteProduct(productId: string) {
+  try {
+    await prisma.product.delete({
+      where: { id: productId },
+    });
+    revalidatePath("/admin/products");
+    return { success: true };
+  } catch (error: any) {
+    console.error("Delete product failed:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to delete product",
+    };
+  }
+}
+
+// Update product
+export async function updateProduct(formData: FormData) {
+  try {
+    const data = updateProductSchema.parse({
+      id: formData.get("id"),
+      name: formData.get("name"),
+      manufacturer: formData.get("manufacturer") || undefined,
+      mrp: formData.get("mrp"),
+    });
+
+    await prisma.product.update({
+      where: { id: data.id },
+      data: {
+        name: data.name,
+        manufacturer: data.manufacturer,
+        mrp: data.mrp,
+      },
+    });
+
+    revalidatePath("/admin/products");
+    return { success: true };
+  } catch (error) {
+    console.error("Update product failed:", error);
+
+    let errorMessage = "Failed to Update Product";
+
+    if (error instanceof z.ZodError) {
+      // errorMessage = error.errors.map((e) => e.message).join(", ") || errorMessage;
+      errorMessage = error.issues.map((e) => e.message).join(", ") || errorMessage;
+    }
+    return {
+      success: false,
+      // error: error instanceof z.ZodError ? error.errors[0].message : "Failed to update product",
+      error: errorMessage,
+    };
+  }
+}
+
 
 export async function getAllStores() {
   return await prisma.store.findMany({
