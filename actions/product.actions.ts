@@ -18,6 +18,7 @@ export async function getAllProducts() {
 }
 
 export async function getStoreStockPositions(storeId: string) {
+  console.log("Stored Id: ", storeId);
   const store = await prisma.store.findFirst({
     where: { id: storeId },
     include: {

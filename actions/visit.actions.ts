@@ -3,7 +3,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { AdjustmentReason } from "@/lib/generated/prisma/enums"; // adjust path if needed
+import { AdjustmentReason } from "@/lib/generated/prisma/enums";
+import { auth } from "@clerk/nextjs/server";
 
 // Simple Haversine distance (in meters)
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -20,18 +21,27 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
 }
 
 export async function checkInAndUpdateStockPositions(formData: FormData) {
+  const { userId } = await auth();
+  if (!userId) {
+    return { success: false, error: "Unauthorized - please sign in" };
+  }
+
   const storeId = formData.get("storeId") as string;
   const latitudeStr = formData.get("latitude") as string;
   const longitudeStr = formData.get("longitude") as string;
 
+  if (!storeId || !latitudeStr || !longitudeStr) {
+    return { success: false, error: "Missing required fields (storeId, location)" };
+  }
+
   const latitude = parseFloat(latitudeStr);
   const longitude = parseFloat(longitudeStr);
 
-  if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
-    return { error: "Invalid location data" };
+  if (isNaN(latitude) || isNaN(longitude)) {
+    return { success: false, error: "Invalid location data" };
   }
 
-  // Fetch store with current stock positions
+  // Fetch store with location & existing stock
   const store = await prisma.store.findUnique({
     where: { id: storeId },
     include: {
@@ -39,85 +49,81 @@ export async function checkInAndUpdateStockPositions(formData: FormData) {
     },
   });
 
-  if (!store || !store.latitude || !store.longitude) {
-    return { error: "Store location not configured" };
+  if (!store) {
+    return { success: false, error: "Store not found" };
+  }
+
+  if (!store.latitude || !store.longitude) {
+    return { success: false, error: "Store location not configured" };
   }
 
   const distance = getDistance(latitude, longitude, store.latitude, store.longitude);
-
   if (distance > 200) { // 200 meters tolerance
-    return { error: "You are not at the store location" };
+    return { success: false, error: "You must be at the store location to update stock" };
   }
 
-  // Placeholder – in real app use auth session
-  const salesmanId = "current-user-id-placeholder"; // ← replace with real auth
-
-  // Record the visit
+  // Create the Visit (one per submission/check-in)
   const visit = await prisma.visit.create({
     data: {
+      salesmanId: userId,
       storeId,
-      salesmanId,
+      timestamp: new Date(),
       latitude,
       longitude,
+      notes: formData.get("notes") as string || "Stock update during visit",
     },
   });
 
-  // Collect all adjustments and stock updates
+  // Collect all changes
   const adjustments: any[] = [];
-  const stockUpdates: any[] = [];
+  const stockUpserts: any[] = [];
 
-  // Go through every product the store might have
-  const productIds = store.stockPositions.map((sp) => sp.productId);
+  // Process each product submitted in form
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith("quantity-")) continue;
 
-  for (const productId of productIds) {
-    const qtyStr = formData.get(`quantity-${productId}`) as string;
-    const newQty = qtyStr ? parseInt(qtyStr, 10) : null;
+    const productId = key.replace("quantity-", "");
+    const newQtyStr = value as string;
+    const newQty = parseInt(newQtyStr, 10);
+
+    if (isNaN(newQty)) continue; // Skip invalid
 
     const expiry = (formData.get(`expiry-${productId}`) as string) || null;
     const batch = (formData.get(`batch-${productId}`) as string) || null;
+    const reason = (formData.get(`reason-${productId}`) as AdjustmentReason) || AdjustmentReason.COUNT_CORRECTION;
 
-    // Skip if no quantity change was submitted
-    if (newQty === null || isNaN(newQty)) continue;
-
-    // Find current stock position (if exists)
-    const currentPosition = store.stockPositions.find(
-      (sp) => sp.productId === productId
-    );
-
+    // Find current quantity (if position exists)
+    const currentPosition = store.stockPositions.find((sp) => sp.productId === productId);
     const currentQty = currentPosition?.quantity ?? 0;
 
-    // Calculate the change
     const quantityChange = newQty - currentQty;
 
-    // Only create adjustment if there was an actual change
+    // Only log adjustment if there was a change
     if (quantityChange !== 0) {
       adjustments.push({
         visitId: visit.id,
         productId,
         storeId,
         quantityChange,
-        reason: AdjustmentReason.RESTOCK, // ← you can make this dynamic later
+        reason,
         batchNumber: batch,
         expiryDate: expiry ? new Date(expiry) : null,
-        notes: quantityChange > 0 ? "Restocked during visit" : "Returned/damaged during visit",
+        notes: `Updated during visit: ${quantityChange > 0 ? "+" : ""}${quantityChange}`,
       });
 
-      // Prepare to update current stock position
-      stockUpdates.push(
+      // Prepare upsert for stock position
+      stockUpserts.push(
         prisma.stockPosition.upsert({
           where: { storeId_productId: { storeId, productId } },
           update: {
-            quantity: {
-              increment: quantityChange,
-            },
-            // Update batch/expiry only if provided (optional)
+            quantity: newQty,
             ...(batch && { batchNumber: batch }),
             ...(expiry && { expiryDate: new Date(expiry) }),
           },
           create: {
             storeId,
             productId,
-            quantity: quantityChange, // starting from the reported amount
+            quantity: newQty,
             batchNumber: batch,
             expiryDate: expiry ? new Date(expiry) : null,
           },
@@ -126,26 +132,21 @@ export async function checkInAndUpdateStockPositions(formData: FormData) {
     }
   }
 
-  // Execute everything in one transaction
+  // Execute in transaction for atomicity
   try {
     await prisma.$transaction(async (tx) => {
-      // 1. Create all adjustments
       if (adjustments.length > 0) {
-        await tx.stockAdjustment.createMany({
-          data: adjustments,
-        });
+        await tx.stockAdjustment.createMany({ data: adjustments });
       }
-
-      // 2. Apply stock position changes
-      await Promise.all(stockUpdates.map((op) => op(tx)));
+      await Promise.all(stockUpserts.map((op) => op(tx)));
     });
+
+    revalidatePath(`/stores/${storeId}/visit`);
+    revalidatePath(`/stores/${storeId}`);
+
+    return { success: true, visitId: visit.id };
   } catch (err) {
-    console.error("Transaction failed:", err);
-    return { error: "Failed to record stock adjustments" };
+    console.error("Stock update transaction failed:", err);
+    return { success: false, error: "Failed to save stock changes" };
   }
-
-  revalidatePath(`/stores/${storeId}`);
-  revalidatePath("/visits"); // optional: if you have a visits list
-
-  return { success: true, visitId: visit.id };
 }
