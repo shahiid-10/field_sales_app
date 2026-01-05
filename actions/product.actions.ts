@@ -3,6 +3,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
+import { error } from "console";
 import { revalidatePath } from "next/cache";
 
 export async function getAllProducts() {
@@ -19,7 +20,7 @@ export async function getAllProducts() {
 
 export async function getStoreStockPositions(storeId: string) {
   console.log("Stored Id: ", storeId);
-  const store = await prisma.store.findFirst({
+  const store = await prisma.store.findUnique({
     where: { id: storeId },
     include: {
       stockPositions: {
@@ -73,70 +74,142 @@ export async function getPendingOrdersForStore(storeId: string) {
 
 // ── Single product stock adjustment (visit mode) ──
 export async function addStockAdjustment(formData: FormData) {
-  const storeId     = formData.get("storeId") as string;
-  const productId   = formData.get("productId") as string;
+  const { userId } = await auth();
+  if (!userId) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: {
+      clerkUserId: userId
+    }
+  })
+  if(!user) return { error: "user no found in db"}
+  const userid = user?.id;
+  const storeId = formData.get("storeId") as string;
+  const productId = formData.get("productId") as string;
   const quantityStr = formData.get("quantity") as string;
-  const expiryStr   = formData.get("expiryDate") as string | null;
-  const batch       = formData.get("batchNumber") as string | null;
+  const expiryStr = formData.get("expiryDate") as string | null;
+  const batch = formData.get("batchNumber") as string | null;
 
   const newQuantity = parseInt(quantityStr);
   if (isNaN(newQuantity) || newQuantity < 0) {
     return { success: false, error: "Invalid quantity" };
   }
 
-  // Get current stock position (if exists)
-  const current = await prisma.stockPosition.findUnique({
-    where: { storeId_productId: { storeId, productId } },
-  });
-
-  const currentQty = current?.quantity ?? 0;
-  const quantityChange = newQuantity - currentQty;
-
-  if (quantityChange === 0) {
-    return { success: true, message: "No change detected" };
-  }
-
   try {
-    await prisma.$transaction(async (tx) => {
-      // Record adjustment
-      await tx.stockAdjustment.create({
+    const result = await prisma.$transaction(async (tx) => {
+      // Create real Visit
+      const visit = await tx.visit.create({
         data: {
-          visitId: "0", // ← important: you need visitId!
-          productId,
+          salesmanId: userid,
           storeId,
-          quantityChange,
-          reason: quantityChange > 0 ? "RESTOCK" : "COUNT_CORRECTION", // default
-          batchNumber: batch || undefined,
-          expiryDate: expiryStr ? new Date(expiryStr) : null,
-          notes: "Added via product selector",
+          timestamp: new Date(),
+          notes: "Stock addition via dialog",
         },
       });
 
-      // Update or create current stock position
-      await tx.stockPosition.upsert({
-        where: { storeId_productId: { storeId, productId } },
-        update: {
-          quantity: { increment: quantityChange },
-          ...(batch && { batchNumber: batch }),
-          ...(expiryStr && { expiryDate: new Date(expiryStr) }),
-        },
-        create: {
+      // Always CREATE new stock position (allows multiple batches/expiry)
+      const newPosition = await tx.stockPosition.create({
+        data: {
           storeId,
           productId,
           quantity: newQuantity,
-          batchNumber: batch,
           expiryDate: expiryStr ? new Date(expiryStr) : null,
+          batchNumber: batch || null,
         },
       });
+
+      // Record adjustment
+      await tx.stockAdjustment.create({
+        data: {
+          visitId: visit.id,
+          productId,
+          storeId,
+          quantityChange: newQuantity,
+          reason: "RESTOCK",
+          batchNumber: batch || undefined,
+          expiryDate: expiryStr ? new Date(expiryStr) : null,
+          notes: "Added new batch during visit",
+        },
+      });
+
+      return { success: true, positionId: newPosition.id };
     });
 
     revalidatePath(`/stores/${storeId}/visit`);
-    return { success: true };
+
+    return result;
   } catch (error) {
-    console.error(error);
-    return { success: false, error: "Failed to record adjustment" };
+    console.error("Stock addition failed:", error);
+    return { success: false, error: "Failed to add stock" };
   }
 }
+// export async function addStockAdjustment(formData: FormData) {
+//   const storeId     = formData.get("storeId") as string;
+//   const productId   = formData.get("productId") as string;
+//   const quantityStr = formData.get("quantity") as string;
+//   const expiryStr   = formData.get("expiryDate") as string | null;
+//   const batch       = formData.get("batchNumber") as string | null;
+
+//   const newQuantity = parseInt(quantityStr);
+//   if (isNaN(newQuantity) || newQuantity < 0) {
+//     return { success: false, error: "Invalid quantity" };
+//   }
+
+//   // Get current stock position (if exists)
+//   const current = await prisma.stockPosition.findUnique({
+//     where: { storeId_productId: { storeId, productId } },
+//   });
+
+//   const currentQty = current?.quantity ?? 0;
+//   const quantityChange = newQuantity - currentQty;
+
+//   if (quantityChange === 0) {
+//     return { success: true, message: "No change detected" };
+//   }
+
+//   try {
+//     await prisma.$transaction(async (tx) => {
+//       // Record adjustment
+//       await tx.stockAdjustment.create({
+//         data: {
+//           visitId: "0", // ← important: you need visitId!
+//           productId,
+//           storeId,
+//           quantityChange,
+//           reason: quantityChange > 0 ? "RESTOCK" : "COUNT_CORRECTION", // default
+//           batchNumber: batch || undefined,
+//           expiryDate: expiryStr ? new Date(expiryStr) : null,
+//           notes: "Added via product selector",
+//         },
+//       });
+
+//       // Update or create current stock position
+//       await tx.stockPosition.upsert({
+//         where: { storeId_productId: { storeId, productId } },
+//         update: {
+//           quantity: { increment: quantityChange },
+//           ...(batch && { batchNumber: batch }),
+//           ...(expiryStr && { expiryDate: new Date(expiryStr) }),
+//         },
+//         create: {
+//           storeId,
+//           productId,
+//           quantity: newQuantity,
+//           batchNumber: batch,
+//           expiryDate: expiryStr ? new Date(expiryStr) : null,
+//         },
+//       });
+//     });
+
+//     revalidatePath(`/stores/${storeId}/visit`);
+//     return { success: true };
+//   } catch (error) {
+//     console.error(error);
+//     return { success: false, error: "Failed to record adjustment" };
+//   }
+// }
 
 // ── Single product order add (order mode) ──
 // Note: Creates a NEW order each time (simple approach)

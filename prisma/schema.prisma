@@ -15,7 +15,7 @@ datasource db {
 
 model User {
   id          String   @id @default(cuid())
-  clerkUserId String?   @unique
+  clerkUserId String?  @unique
   email       String   @unique
   name        String?
   role        Role
@@ -60,18 +60,44 @@ model Inventory {
   product   Product @relation(fields: [productId], references: [id])
 }
 
+// model StockPosition {
+//   id           String    @id @default(cuid())
+//   storeId      String
+//   productId    String
+//   quantity     Int       @default(0)
+//   expiryDate   DateTime?
+//   batchNumber  String?
+//   manufactured DateTime? // Optional: manufacturing date
+//   store        Store     @relation(fields: [storeId], references: [id])
+//   product      Product   @relation(fields: [productId], references: [id])
+
+//   @@unique([storeId, productId]) // One position per product per store
+// }
 model StockPosition {
-  id           String    @id @default(cuid())
+  id           String    @id @default(uuid())
   storeId      String
   productId    String
   quantity     Int       @default(0)
-  expiryDate   DateTime?
-  batchNumber  String?
-  manufactured DateTime? // Optional: manufacturing date
-  store        Store     @relation(fields: [storeId], references: [id])
-  product      Product   @relation(fields: [productId], references: [id])
+  expiryDate   DateTime? // nullable, different expiry = different row
+  batchNumber  String? // nullable, different batch = different row
+  manufactured DateTime? // optional: manufacturing date
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  @@unique([storeId, productId]) // One position per product per store
+  store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // IMPORTANT: NO unique constraint on storeId + productId
+  // This allows multiple rows for the same product/store with different batches/expiry
+
+  // Optional: Prevent exact duplicate entries (same everything)
+  // Only uncomment if you NEVER want two identical rows (same store/product/batch/expiry)
+  // @@unique([storeId, productId, batchNumber, expiryDate])
+
+  @@index([storeId, productId]) // Fast lookup by store + product
+  @@index([productId]) // Fast lookup by product across stores
+  @@index([expiryDate]) // For expiry reports/alerts
+  @@map("stock_positions")
 }
 
 // model Visit {
@@ -90,8 +116,8 @@ model Visit {
   salesmanId String
   storeId    String
   timestamp  DateTime @default(now())
-  latitude   Float
-  longitude  Float
+  latitude   Float?
+  longitude  Float?
   notes      String? // optional
 
   salesman User  @relation(fields: [salesmanId], references: [id])
