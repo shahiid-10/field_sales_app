@@ -36,6 +36,7 @@ export async function getStoreStockPositions(storeId: string) {
   if (!store) throw new Error('Store not found');
 
   return store.stockPositions.map(sp => ({
+    id: sp.id,
     productId: sp.productId,
     productName: sp.product.name,
     mrp: sp.product.mrp,

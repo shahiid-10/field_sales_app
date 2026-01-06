@@ -130,7 +130,8 @@ export function StockPositionUpdateForm({
       setMessage("Visit recorded and stock adjustments saved successfully!");
       form.reset();
     } else {
-      setMessage(result.error || "Something went wrong. Please try again.");
+      // setMessage(result.error || "Something went wrong. Please try again.");
+      console.log("something went wrong - StockPositionUpdateForm")
     }
 
     setLoading(false);
