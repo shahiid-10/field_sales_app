@@ -10,66 +10,133 @@ type Props = {
 };
 
 export default async function StoreOrdersPage({ params }: Props) {
-  // ✅ unwrap params
   const { storeid } = await params;
-
-  console.log("storeId value:", storeid); // ✅ "3"
 
   const pendingOrders = await getPendingOrdersForStore(storeid);
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
-      {/* <div className="bg-green-100 p-4 mb-4 rounded">
-        <strong>Debug:</strong> storeId = <code>{storeid}</code>
-      </div> */}
+    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold tracking-tight">
+          Store Orders
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Pending orders for this store
+        </p>
+      </div>
 
-      <h1 className="text-3xl font-bold mb-4">Store Orders</h1>
-      {/* <h1 className="text-3xl font-bold mb-4">
-        Orders for {store?.name || "Store"}
-      </h1> */}
+      {/* Orders */}
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">Pending Orders</h2>
 
-      <div className="mb-8">
-        <h2 className="text-xl font-semibold mb-2">Pending Orders</h2>
+          <ProductSelectorDialog mode="order" storeId={storeid} />
+        </div>
 
         {pendingOrders.length === 0 ? (
-          <p className="text-muted-foreground">No pending orders.</p>
+          <p className="text-muted-foreground">
+            No pending orders.
+          </p>
         ) : (
-          <table className="w-full border-collapse">
-            <thead>
-              <tr>
-                <th className="border p-2">Order ID</th>
-                <th className="border p-2">Salesman</th>
-                <th className="border p-2">Date</th>
-                <th className="border p-2">Items</th>
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            {/* ================= MOBILE VIEW ================= */}
+            <div className="space-y-4 md:hidden">
               {pendingOrders.map((order) => (
-                <tr key={order.id}>
-                  <td className="border p-2">{order.id.slice(0, 8)}…</td>
-                  <td className="border p-2">
-                    {order.salesmanName ?? "Unknown"}
-                  </td>
-                  <td className="border p-2">
-                    {format(new Date(order.createdAt), "PPP")}
-                  </td>
-                  <td className="border p-2">
-                    <ul>
-                      {order.items.map((item, i) => (
-                        <li key={i}>
-                          {item.productName} × {item.quantity} (₹{item.mrp})
-                        </li>
-                      ))}
-                    </ul>
-                  </td>
-                </tr>
+                <div
+                  key={order.id}
+                  className="rounded-xl border bg-card p-4 shadow-sm"
+                >
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Order ID</span>
+                    <span>{order.id.slice(0, 8)}…</span>
+                  </div>
+
+                  <div className="mt-2">
+                    <p className="font-medium">
+                      {order.salesmanName ?? "Unknown"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {format(new Date(order.createdAt), "PPP")}
+                    </p>
+                  </div>
+
+                  <div className="mt-4 space-y-2 text-sm">
+                    {order.items.map((item, i) => (
+                      <div
+                        key={i}
+                        className="flex items-start justify-between gap-2"
+                      >
+                        <span className="truncate">
+                          {item.productName} × {item.quantity}
+                        </span>
+                        <span className="font-medium whitespace-nowrap">
+                          ₹{item.mrp}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+
+            {/* ================= DESKTOP VIEW ================= */}
+            <div className="hidden md:block overflow-x-auto rounded-lg border">
+              <table className="min-w-full border-collapse">
+                <thead className="bg-muted">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      Order ID
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      Salesman
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      Date
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">
+                      Items
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingOrders.map((order) => (
+                    <tr
+                      key={order.id}
+                      className="border-t hover:bg-muted/50"
+                    >
+                      <td className="px-4 py-3 text-sm">
+                        {order.id.slice(0, 8)}…
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {order.salesmanName ?? "Unknown"}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {format(new Date(order.createdAt), "PPP")}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <ul className="space-y-1">
+                          {order.items.map((item, i) => (
+                            <li key={i}>
+                              {item.productName} × {item.quantity} (₹
+                              {item.mrp})
+                            </li>
+                          ))}
+                        </ul>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
-      <ProductSelectorDialog mode="order" storeId={storeid} />
+      {/* Add Product / Order */}
+      {/* <div className="mt-10">
+        <ProductSelectorDialog mode="order" storeId={storeid} />
+      </div> */}
     </div>
   );
 }

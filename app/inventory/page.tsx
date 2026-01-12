@@ -25,56 +25,38 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Package2, AlertTriangle, DollarSign, PlusCircle } from "lucide-react";
-import { useState } from "react";
-
-// Dummy inventory data
-const dummyInventory = [
-  {
-    id: "prod-1",
-    name: "Paracetamol 500mg",
-    manufacturer: "ABC Pharma",
-    mrp: 50,
-    quantity: 1200,
-    lowStockThreshold: 200,
-  },
-  {
-    id: "prod-2",
-    name: "Vitamin C Tablets",
-    manufacturer: "XYZ Labs",
-    mrp: 120,
-    quantity: 450,
-    lowStockThreshold: 100,
-  },
-  {
-    id: "prod-3",
-    name: "Cough Syrup",
-    manufacturer: "MediCo",
-    mrp: 80,
-    quantity: 30,
-    lowStockThreshold: 50,
-  },
-];
+import {
+  Package2,
+  AlertTriangle,
+  DollarSign,
+  PlusCircle,
+  Edit,
+} from "lucide-react";
+import {
+  getCentralInventory,
+  updateInventoryQuantity,
+} from "@/actions/product.actions";
+import { InventoryEditDialog } from "@/components/InventoryEditDialog";
 
 export default async function InventoryPage() {
   const user = await currentUser();
-
   if (!user) redirect("/sign-in");
 
-  // Everyone can view, but only stock-manager + admin can add stock
-  const canAddStock = ["stock-manager", "admin"].includes(
+  const canEdit = ["ADMIN", "STOCK_MANAGER"].includes(
     user.publicMetadata.role as string
   );
 
-  // Stats
-  const totalProducts = dummyInventory.length;
-  const lowStockItems = dummyInventory.filter(
+  const inventory = await getCentralInventory();
+
+  const totalProducts = inventory.length;
+  const lowStockItems = inventory.filter(
     (item) => item.quantity <= item.lowStockThreshold
   ).length;
-  const totalValue = dummyInventory.reduce(
+  const totalValue = inventory.reduce(
     (sum, item) => sum + item.mrp * item.quantity,
     0
   );
@@ -85,76 +67,16 @@ export default async function InventoryPage() {
         <div>
           <h1 className="text-3xl font-bold">Central Inventory</h1>
           <p className="text-muted-foreground mt-1">
-            Current warehouse stock levels
+            Warehouse stock levels • Last updated:{" "}
+            {new Date().toLocaleDateString()}
           </p>
         </div>
 
-        {canAddStock && (
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button>
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Add Inbound Stock
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>Add Inbound Stock</DialogTitle>
-                <DialogDescription>
-                  Enter details for new stock received in warehouse.
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="product" className="text-right">
-                    Product
-                  </Label>
-                  <Input id="product" className="col-span-3" placeholder="e.g. Paracetamol 500mg" />
-                </div>
-
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="manufacturer" className="text-right">
-                    Manufacturer
-                  </Label>
-                  <Input id="manufacturer" className="col-span-3" placeholder="e.g. ABC Pharma" />
-                </div>
-
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="quantity" className="text-right">
-                    Quantity
-                  </Label>
-                  <Input id="quantity" type="number" className="col-span-3" min="1" placeholder="e.g. 500" />
-                </div>
-
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="mrp" className="text-right">
-                    MRP (₹)
-                  </Label>
-                  <Input id="mrp" type="number" className="col-span-3" placeholder="e.g. 50" />
-                </div>
-
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="batch" className="text-right">
-                    Batch No
-                  </Label>
-                  <Input id="batch" className="col-span-3" placeholder="e.g. BATCH-001" />
-                </div>
-
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="expiry" className="text-right">
-                    Expiry
-                  </Label>
-                  <Input id="expiry" type="date" className="col-span-3" />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-4">
-                <Button variant="outline">Cancel</Button>
-                <Button>Add Stock</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+        {canEdit && (
+          <Button variant="outline" disabled>
+            {/* Future: Add new product or bulk inbound */}
+            Add New Product (Coming soon)
+          </Button>
         )}
       </div>
 
@@ -162,7 +84,9 @@ export default async function InventoryPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Total Products</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Total Products
+            </CardTitle>
             <Package2 className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -172,7 +96,9 @@ export default async function InventoryPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Low Stock Items</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Low Stock Items
+            </CardTitle>
             <AlertTriangle className="h-5 w-5 text-yellow-600" />
           </CardHeader>
           <CardContent>
@@ -186,7 +112,9 @@ export default async function InventoryPage() {
             <DollarSign className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">₹{totalValue.toLocaleString()}</div>
+            <div className="text-2xl font-bold">
+              ₹{totalValue.toLocaleString()}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -195,7 +123,9 @@ export default async function InventoryPage() {
       <Card>
         <CardHeader>
           <CardTitle>Stock Details</CardTitle>
-          <CardDescription>Current quantities and low stock alerts</CardDescription>
+          <CardDescription>
+            Current central warehouse quantities
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -207,10 +137,13 @@ export default async function InventoryPage() {
                   <TableHead className="text-right">MRP</TableHead>
                   <TableHead className="text-right">Quantity</TableHead>
                   <TableHead className="text-right">Status</TableHead>
+                  {canEdit && (
+                    <TableHead className="text-right">Actions</TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {dummyInventory.map((item) => {
+                {inventory.map((item) => {
                   const isLowStock = item.quantity <= item.lowStockThreshold;
 
                   return (
@@ -228,6 +161,16 @@ export default async function InventoryPage() {
                           <Badge variant="secondary">In Stock</Badge>
                         )}
                       </TableCell>
+
+                      {canEdit && (
+                        <TableCell className="text-right">
+                          <InventoryEditDialog
+                            productId={item.id}
+                            name={item.name}
+                            currentQty={item.quantity}
+                          />
+                        </TableCell>
+                      )}
                     </TableRow>
                   );
                 })}

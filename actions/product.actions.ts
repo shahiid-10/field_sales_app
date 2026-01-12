@@ -19,7 +19,7 @@ export async function getAllProducts() {
 }
 
 export async function getStoreStockPositions(storeId: string) {
-  console.log("Stored Id: ", storeId);
+  // console.log("Stored Id: ", storeId);
   const store = await prisma.store.findUnique({
     where: { id: storeId },
     include: {
@@ -261,14 +261,14 @@ export async function addOrderItem(formData: FormData) {
     const productId   = formData.get("productId") as string;
     const quantityStr = formData.get("quantity") as string;
 
-    console.log("Storeee id: ", storeId);
+    // console.log("Storeee id: ", storeId);
 
-    console.log("[addOrderItem] Received data:", {
-      storeId,
-      productId,
-      quantityStr,
-      rawFormData: Object.fromEntries(formData),
-    });
+    // console.log("[addOrderItem] Received data:", {
+    //   storeId,
+    //   productId,
+    //   quantityStr,
+    //   rawFormData: Object.fromEntries(formData),
+    // });
 
     if (!storeId?.trim()) throw new Error("Store ID is empty or missing");
     if (!productId?.trim()) throw new Error("Product ID is empty or missing");
@@ -428,3 +428,71 @@ export async function addOrderItem(formData: FormData) {
 //     return { success: false, error: "Failed to create order" };
 //   }
 // }
+
+////////////////////// CENTRAL INVENTORY ////////////////////////////
+export async function getCentralInventory() {
+  const products = await prisma.product.findMany({
+    include: {
+      inventory: true,
+    },
+    orderBy: {
+      name: "asc",
+    },
+  });
+
+  return products.map((p) => ({
+    id: p.id,
+    name: p.name,
+    manufacturer: p.manufacturer || "N/A",
+    mrp: p.mrp,
+    quantity: p.inventory?.quantity ?? 0,
+    // expiryDate: p.inventory?.expiryDate ?? null,
+    lowStockThreshold: 50, // ← hardcoded for now; can be made configurable later
+  }));
+}
+
+export async function updateInventoryQuantity(
+  productId: string,
+  newQuantity: number,
+  notes?: string
+) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Unauthorized");
+
+  // Optional: role check (you can fetch user role from db)
+  // const user = await prisma.user.findFirst({ where: { clerkUserId: userId } });
+  // if (!["ADMIN", "STOCK_MANAGER"].includes(user?.role ?? "")) throw new Error("Forbidden");
+
+  if (newQuantity < 0) throw new Error("Quantity cannot be negative");
+
+  await prisma.inventory.upsert({
+    where: { productId },
+    update: {
+      quantity: newQuantity,
+    },
+    create: {
+      productId,
+      quantity: newQuantity,
+    },
+  });
+
+  revalidatePath("/inventory");
+  return { success: true };
+}
+
+export async function addInventoryQuantity(
+  productId: string,
+  addAmount: number,
+  notes?: string
+) {
+  if (addAmount <= 0) throw new Error("Amount must be positive");
+
+  const current = await prisma.inventory.findUnique({
+    where: { productId },
+    select: { quantity: true },
+  });
+
+  const newQty = (current?.quantity ?? 0) + addAmount;
+
+  return updateInventoryQuantity(productId, newQty, notes);
+}

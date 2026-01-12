@@ -42,7 +42,6 @@ export function VisitStockEditor({
   const [editValues, setEditValues] = useState<Partial<StockPosition>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  /* Keep client state in sync after revalidation */
   useEffect(() => {
     setStock(initialStock);
   }, [initialStock]);
@@ -63,7 +62,6 @@ export function VisitStockEditor({
     setIsSubmitting(true);
     const prevStock = stock;
 
-    // optimistic update
     setStock((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...editValues } : p))
     );
@@ -79,10 +77,10 @@ export function VisitStockEditor({
     const res = await checkInAndUpdateStockPositions(fd);
 
     if (res.success) {
-      toast.success("Stock updated successfully");
+      toast.success("Stock updated");
     } else {
-      setStock(prevStock); // rollback
-      toast.error(res.error ?? "Failed to update stock");
+      setStock(prevStock);
+      toast.error(res.error ?? "Update failed");
     }
 
     setEditingId(null);
@@ -96,7 +94,6 @@ export function VisitStockEditor({
     setIsSubmitting(true);
     const prevStock = stock;
 
-    // optimistic delete
     setStock((prev) => prev.filter((p) => p.id !== id));
 
     const fd = new FormData();
@@ -107,20 +104,13 @@ export function VisitStockEditor({
     const res = await checkInAndUpdateStockPositions(fd);
 
     if (res.success) {
-      toast.success("Stock entry removed");
+      toast.success("Stock removed");
     } else {
-      setStock(prevStock); // rollback
-      toast.error(res.error ?? "Couldn't delete stock");
+      setStock(prevStock);
+      toast.error(res.error ?? "Delete failed");
     }
 
     setIsSubmitting(false);
-  };
-
-  /* ───────────── Add product success ───────────── */
-
-  const handleAddSuccess = () => {
-    toast.success("New product added");
-    // stock will refresh automatically via revalidatePath
   };
 
   /* ───────────── UI ───────────── */
@@ -128,22 +118,148 @@ export function VisitStockEditor({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Current Stock at Store</h2>
-        <AddProductToVisitDialog
-          storeId={storeId}
-          onSuccess={handleAddSuccess}
-        />
+      <div className="flex flex-wrap items-start justify-between gap-4 sm:flex-nowrap sm:items-center">
+        <h2 className="text-xl font-semibold">Current Stock</h2>
+        <AddProductToVisitDialog storeId={storeId} />
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto rounded-md border">
+      {/* ===== Mobile view ===== */}
+      <div className="space-y-4 md:hidden">
+        {stock.length === 0 && (
+          <div className="text-center py-8 text-muted-foreground">
+            No stock positions yet
+          </div>
+        )}
+
+        {stock.map((pos) => {
+          const isEditing = editingId === pos.id;
+
+          return (
+            <div
+              key={pos.id}
+              className="border rounded-lg p-4 space-y-3"
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="font-medium">{pos.productName}</div>
+                  <div className="text-sm text-muted-foreground">
+                    ₹{pos.mrp}
+                  </div>
+                </div>
+
+                <div className="flex gap-1">
+                  {isEditing ? (
+                    <>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => handleEditSave(pos.id)}
+                        disabled={isSubmitting}
+                      >
+                        <Save className="h-4 w-4 text-green-600" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={handleEditCancel}
+                        disabled={isSubmitting}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => handleEditStart(pos)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => handleDelete(pos.id)}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Qty</span>
+                  {isEditing ? (
+                    <Input
+                      type="number"
+                      min={0}
+                      value={editValues.quantity ?? pos.quantity}
+                      onChange={(e) =>
+                        setEditValues({
+                          ...editValues,
+                          quantity: Number(e.target.value),
+                        })
+                      }
+                    />
+                  ) : (
+                    <div>{pos.quantity}</div>
+                  )}
+                </div>
+
+                <div>
+                  <span className="text-muted-foreground">Batch</span>
+                  {isEditing ? (
+                    <Input
+                      value={editValues.batchNumber ?? pos.batchNumber ?? ""}
+                      onChange={(e) =>
+                        setEditValues({
+                          ...editValues,
+                          batchNumber: e.target.value,
+                        })
+                      }
+                    />
+                  ) : (
+                    <div>{pos.batchNumber || "-"}</div>
+                  )}
+                </div>
+
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Expiry</span>
+                  {isEditing ? (
+                    <Input
+                      type="date"
+                      value={editValues.expiryDate ?? pos.expiryDate ?? ""}
+                      onChange={(e) =>
+                        setEditValues({
+                          ...editValues,
+                          expiryDate: e.target.value,
+                        })
+                      }
+                    />
+                  ) : (
+                    <div>
+                      {pos.expiryDate
+                        ? format(new Date(pos.expiryDate), "PPP")
+                        : "N/A"}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ===== Desktop table ===== */}
+      <div className="hidden md:block rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Product</TableHead>
               <TableHead>MRP</TableHead>
-              <TableHead>Quantity</TableHead>
+              <TableHead>Qty</TableHead>
               <TableHead>Expiry</TableHead>
               <TableHead>Batch</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -158,114 +274,116 @@ export function VisitStockEditor({
                 </TableCell>
               </TableRow>
             ) : (
-              stock.map((pos) => (
-                <TableRow key={pos.id}>
-                  <TableCell className="font-medium">
-                    {pos.productName}
-                  </TableCell>
+              stock.map((pos) => {
+                const isEditing = editingId === pos.id;
 
-                  <TableCell>₹{pos.mrp.toFixed(2)}</TableCell>
+                return (
+                  <TableRow key={pos.id}>
+                    <TableCell className="font-medium">
+                      {pos.productName}
+                    </TableCell>
+                    <TableCell>₹{pos.mrp}</TableCell>
 
-                  <TableCell>
-                    {editingId === pos.id ? (
-                      <Input
-                        type="number"
-                        min={0}
-                        value={editValues.quantity ?? pos.quantity}
-                        onChange={(e) =>
-                          setEditValues({
-                            ...editValues,
-                            quantity: Number(e.target.value),
-                          })
-                        }
-                        disabled={isSubmitting}
-                        className="w-20"
-                      />
-                    ) : (
-                      pos.quantity
-                    )}
-                  </TableCell>
+                    <TableCell>
+                      {isEditing ? (
+                        <Input
+                          type="number"
+                          min={0}
+                          value={editValues.quantity ?? pos.quantity}
+                          onChange={(e) =>
+                            setEditValues({
+                              ...editValues,
+                              quantity: Number(e.target.value),
+                            })
+                          }
+                          className="w-20"
+                        />
+                      ) : (
+                        pos.quantity
+                      )}
+                    </TableCell>
 
-                  <TableCell>
-                    {editingId === pos.id ? (
-                      <Input
-                        type="date"
-                        value={editValues.expiryDate ?? pos.expiryDate ?? ""}
-                        onChange={(e) =>
-                          setEditValues({
-                            ...editValues,
-                            expiryDate: e.target.value,
-                          })
-                        }
-                        disabled={isSubmitting}
-                      />
-                    ) : pos.expiryDate ? (
-                      format(new Date(pos.expiryDate), "PPP")
-                    ) : (
-                      "N/A"
-                    )}
-                  </TableCell>
+                    <TableCell>
+                      {isEditing ? (
+                        <Input
+                          type="date"
+                          value={
+                            editValues.expiryDate ?? pos.expiryDate ?? ""
+                          }
+                          onChange={(e) =>
+                            setEditValues({
+                              ...editValues,
+                              expiryDate: e.target.value,
+                            })
+                          }
+                        />
+                      ) : pos.expiryDate ? (
+                        format(new Date(pos.expiryDate), "PPP")
+                      ) : (
+                        "N/A"
+                      )}
+                    </TableCell>
 
-                  <TableCell>
-                    {editingId === pos.id ? (
-                      <Input
-                        value={editValues.batchNumber ?? pos.batchNumber ?? ""}
-                        onChange={(e) =>
-                          setEditValues({
-                            ...editValues,
-                            batchNumber: e.target.value,
-                          })
-                        }
-                        disabled={isSubmitting}
-                      />
-                    ) : (
-                      pos.batchNumber || "-"
-                    )}
-                  </TableCell>
+                    <TableCell>
+                      {isEditing ? (
+                        <Input
+                          value={
+                            editValues.batchNumber ??
+                            pos.batchNumber ??
+                            ""
+                          }
+                          onChange={(e) =>
+                            setEditValues({
+                              ...editValues,
+                              batchNumber: e.target.value,
+                            })
+                          }
+                        />
+                      ) : (
+                        pos.batchNumber || "-"
+                      )}
+                    </TableCell>
 
-                  <TableCell className="text-right space-x-2">
-                    {editingId === pos.id ? (
-                      <>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => handleEditSave(pos.id)}
-                          disabled={isSubmitting}
-                        >
-                          <Save className="h-4 w-4 text-green-600" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={handleEditCancel}
-                          disabled={isSubmitting}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => handleEditStart(pos)}
-                          disabled={isSubmitting}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => handleDelete(pos.id)}
-                          disabled={isSubmitting}
-                        >
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))
+                    <TableCell className="text-right space-x-2">
+                      {isEditing ? (
+                        <>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => handleEditSave(pos.id)}
+                          >
+                            <Save className="h-4 w-4 text-green-600" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={handleEditCancel}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => handleEditStart(pos)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => handleDelete(pos.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>

@@ -14,6 +14,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   Calendar,
@@ -24,36 +25,50 @@ import {
   ShoppingCart,
   Users,
   Settings,
-  Store,
-  PackagePlus,
+  NotepadTextDashed,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const menuItems = [
   { title: "Dashboard", url: "/dashboard", icon: Home },
   { title: "Stores", url: "/stores", icon: Calendar },
   { title: "Orders", url: "/orders", icon: ShoppingCart },
   { title: "Inventory", url: "/inventory", icon: Package },
+  { title: "Reports", url: "/reports", icon: NotepadTextDashed },
   {
     title: "Admin",
     icon: Users,
     subItems: [
       { title: "Users", url: "/admin/users" },
       { title: "Products", url: "/admin/products" },
-      { title: "Stores", url: "/admin/stores" },
-      // Add more admin sub-items here later (e.g. Reports, Settings)
+      { title: "Stores", url: "/admin/store" },
     ],
   },
-  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const [openAdmin, setOpenAdmin] = useState(true); // Default open for admin section
+  const { setOpenMobile } = useSidebar();
+  const [openAdmin, setOpenAdmin] = useState(true);
+
+  // Auto-close mobile sidebar on route change
+  useEffect(() => {
+    if (window.innerWidth < 768) {
+      setOpenMobile(false);
+    }
+  }, [pathname, setOpenMobile]);
+
+  // Close on any link/button click (mobile only)
+  const handleLinkClick = () => {
+    if (window.innerWidth < 768) {
+      setOpenMobile(false);
+    }
+  };
 
   return (
     <Sidebar>
@@ -71,7 +86,6 @@ export function AppSidebar() {
               {menuItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   {item.subItems ? (
-                    // Collapsible Admin section with dropdown
                     <>
                       <SidebarMenuButton
                         onClick={() => setOpenAdmin(!openAdmin)}
@@ -95,6 +109,7 @@ export function AppSidebar() {
                               <SidebarMenuSubButton asChild>
                                 <Link
                                   href={subItem.url}
+                                  onClick={handleLinkClick}
                                   className={cn(
                                     "pl-8",
                                     pathname === subItem.url && "bg-accent"
@@ -109,8 +124,11 @@ export function AppSidebar() {
                       )}
                     </>
                   ) : (
-                    // Regular link
-                    <SidebarMenuButton asChild isActive={pathname.startsWith(item.url)}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname.startsWith(item.url)}
+                      onClick={handleLinkClick}
+                    >
                       <Link href={item.url}>
                         <item.icon className="h-5 w-5" />
                         <span>{item.title}</span>
@@ -124,7 +142,27 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* User Avatar + Logout at bottom */}
+      {/* Settings at the bottom (before footer) */}
+      <SidebarGroup className="mt-auto">
+        <SidebarGroupLabel>Settings</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton className="justify-between">
+                <div className="flex items-center gap-2">
+                  <Settings className="h-5 w-5" />
+                  <span>Theme</span>
+                </div>
+                <ThemeToggle />
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+
+            {/* Add more settings items here if needed */}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+
+      {/* User Avatar + Logout */}
       <SidebarFooter className="p-4 border-t">
         <div className="flex items-center gap-3">
           <UserButton

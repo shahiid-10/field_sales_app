@@ -4,19 +4,17 @@ import { VisitStockEditor } from "@/components/VisitStockEditor";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
 
-// type Props = { params: { storeId: string } };
 type Props = {
-  params: Promise<{ storeid: string }>;  // ← Type as Promise
+  params: Promise<{ storeid: string }>;  
 };
 
 export default async function StoreVisitPage({ params: paramsPromise  }: Props) {
 
   const params = await paramsPromise;
-  const storeId = params.storeid;  // Now safe & defined
-  // const { storeId } = params;
+  const storeId = params.storeid;  
 
-  // console.log("Resolved storeId:", storeId);
   const stockPositions = await getStoreStockPositions(params.storeid);
+  // console.log(stockPositions);
 
   if (!stockPositions) notFound();
 

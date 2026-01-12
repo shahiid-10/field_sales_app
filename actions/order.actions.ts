@@ -76,21 +76,21 @@ export async function getPendingOrdersForStore(storeId: string) {
 
 
 // Update order status (used by stock manager)
-export async function updateOrderStatus(orderId: string, newStatus: string) {
-  if (!["PENDING", "PARTIAL", "FULFILLED", "UNFULFILLED"].includes(newStatus)) {
-    throw new Error("Invalid order status");
-  }
+// export async function updateOrderStatus(orderId: string, newStatus: string) {
+//   if (!["PENDING", "PARTIAL", "FULFILLED", "UNFULFILLED"].includes(newStatus)) {
+//     throw new Error("Invalid order status");
+//   }
 
-  await prisma.order.update({
-    where: { id: orderId },
-    data: { status: newStatus as OrderStatus },
-  });
+//   await prisma.order.update({
+//     where: { id: orderId },
+//     data: { status: newStatus as OrderStatus },
+//   });
 
-  // Revalidate the orders page for this store
-  // Note: storeId is not directly available here, so we revalidate all orders pages
-  // Alternatively, pass storeId and do targeted revalidation
-  revalidatePath("/stores/[storeId]/orders", "page");
-}
+//   // Revalidate the orders page for this store
+//   // Note: storeId is not directly available here, so we revalidate all orders pages
+//   // Alternatively, pass storeId and do targeted revalidation
+//   revalidatePath("/stores/[storeId]/orders", "page");
+// }
 
 export async function getOrdersGroupedByStore() {
   const storesWithOrders = await prisma.store.findMany({
@@ -245,4 +245,288 @@ export async function createMultiItemOrder(input: {
   }
 
   
+}
+
+export async function attemptFullFulfillment(orderId: string) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      items: true,
+      store: { select: { id: true } },
+    },
+  });
+
+  if (!order) throw new Error("Order not found");
+  if (order.status !== "PENDING") throw new Error("Can only fulfill pending orders");
+
+  // Check if enough stock for ALL items
+  for (const item of order.items) {
+    const inventory = await prisma.inventory.findUnique({
+      where: { productId: item.productId },
+    });
+    const available = inventory?.quantity || 0;
+    if (available < item.quantity) {
+      throw new Error(`Insufficient stock for product ${item.productId}. Available: ${available}, Requested: ${item.quantity}`);
+    }
+  }
+
+  // If all good, fulfill in transaction
+  await prisma.$transaction(async (tx) => {
+    for (const item of order.items) {
+      // Deduct from central inventory
+      await tx.inventory.update({
+        where: { productId: item.productId },
+        data: { quantity: { decrement: item.quantity } },
+      });
+
+      // Add to store's stock position (new row with null batch/expiry)
+      await tx.stockPosition.create({
+        data: {
+          storeId: order.storeId,
+          productId: item.productId,
+          quantity: item.quantity,
+          batchNumber: null,
+          expiryDate: null,
+        },
+      });
+    }
+
+    // Update status
+    await tx.order.update({
+      where: { id: orderId },
+      data: { status: "FULFILLED" },
+    });
+  });
+
+  revalidatePath("/stores/[storeId]/orders", "page");
+  return { success: true };
+}
+
+export async function attemptPartialFulfillment(orderId: string) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      items: true,
+      store: { select: { id: true } },
+    },
+  });
+
+  if (!order) throw new Error("Order not found");
+  if (order.status !== "PENDING") throw new Error("Can only fulfill pending orders");
+
+  let allFull = true;
+  let allUnfulfilled = true;
+
+  await prisma.$transaction(async (tx) => {
+    for (const item of order.items) {
+      const inventory = await tx.inventory.findUnique({
+        where: { productId: item.productId },
+      });
+      let available = inventory?.quantity || 0;
+      const fulfillAmt = Math.min(available, item.quantity);
+
+      if (fulfillAmt > 0) {
+        // Deduct from central inventory
+        await tx.inventory.update({
+          where: { productId: item.productId },
+          data: { quantity: { decrement: fulfillAmt } },
+        });
+
+        // Add to store's stock position (new row with null batch/expiry)
+        await tx.stockPosition.create({
+          data: {
+            storeId: order.storeId,
+            productId: item.productId,
+            quantity: fulfillAmt,
+            batchNumber: null,
+            expiryDate: null,
+          },
+        });
+
+        allUnfulfilled = false;
+      }
+
+      if (fulfillAmt < item.quantity) {
+        // Track shortfall
+        await tx.unfulfilledItem.create({
+          data: {
+            orderId: order.id,
+            storeId: order.storeId,
+            productId: item.productId,
+            requestedQty: item.quantity,
+            availableQty: fulfillAmt,
+          },
+        });
+        allFull = false;
+      } else {
+        allUnfulfilled = false;
+      }
+    }
+
+    // Set status based on outcome
+    let newStatus: OrderStatus;
+    if (allFull) {
+      newStatus = "FULFILLED";
+    } else if (allUnfulfilled) {
+      newStatus = "UNFULFILLED";
+    } else {
+      newStatus = "PARTIAL";
+    }
+
+    await tx.order.update({
+      where: { id: orderId },
+      data: { status: newStatus },
+    });
+  });
+
+  revalidatePath("/stores/[storeId]/orders", "page");
+  return { success: true, message: allFull ? "Fully fulfilled" : "Partially fulfilled due to stock shortages" };
+}
+
+export async function getOrderForFulfillment(orderId: string) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      items: {
+        include: {
+          product: {
+            select: {
+              name: true,
+              inventory: {
+                select: {
+                  quantity: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      store: { select: { id: true } },
+    },
+  });
+
+  if (!order) throw new Error("Order not found");
+
+  return {
+    id: order.id,
+    storeId: order.store.id,
+    items: order.items.map((item) => ({
+      productId: item.productId,
+      productName: item.product.name,
+      requestedQty: item.quantity,
+      availableQty: item.product.inventory?.quantity || 0,
+    })),
+  };
+}
+
+// Process fulfillment with specified quantities
+// fulfilledQtys: { [productId: string]: number }
+export async function processFulfillment(
+  orderId: string,
+  fulfilledQtys: Record<string, number>,
+  isFullMode: boolean // true if user selected "FULFILLED" (enforce all full)
+) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      items: true,
+      store: { select: { id: true } },
+    },
+  });
+
+  if (!order) throw new Error("Order not found");
+  if (order.status !== "PENDING") throw new Error("Can only fulfill pending orders");
+
+  // Validate inputs
+  let allFull = true;
+  let allZero = true;
+  for (const item of order.items) {
+    const fulfillQty = fulfilledQtys[item.productId] ?? 0;
+    if (fulfillQty < 0 || fulfillQty > item.quantity) {
+      throw new Error(`Invalid quantity for ${item.productId}: ${fulfillQty}`);
+    }
+    const inventory = await prisma.inventory.findUnique({ where: { productId: item.productId } });
+    const available = inventory?.quantity || 0;
+    if (fulfillQty > available) {
+      throw new Error(`Insufficient stock for ${item.productId}. Available: ${available}, Fulfilling: ${fulfillQty}`);
+    }
+
+    if (fulfillQty < item.quantity) allFull = false;
+    if (fulfillQty > 0) allZero = false;
+  }
+
+  if (isFullMode && !allFull) {
+    throw new Error("Cannot mark as FULFILLED: Not all items are fully satisfied");
+  }
+
+  // Process in transaction
+  await prisma.$transaction(async (tx) => {
+    for (const item of order.items) {
+      const fulfillQty = fulfilledQtys[item.productId] ?? 0;
+      if (fulfillQty > 0) {
+        // Deduct from inventory
+        await tx.inventory.update({
+          where: { productId: item.productId },
+          data: { quantity: { decrement: fulfillQty } },
+        });
+
+        // Add to store stock position
+        await tx.stockPosition.create({
+          data: {
+            storeId: order.storeId,
+            productId: item.productId,
+            quantity: fulfillQty,
+            batchNumber: null,
+            expiryDate: null,
+          },
+        });
+      }
+
+      if (fulfillQty < item.quantity) {
+        // Track shortfall
+        await tx.unfulfilledItem.create({
+          data: {
+            orderId: order.id,
+            storeId: order.storeId,
+            productId: item.productId,
+            requestedQty: item.quantity,
+            availableQty: fulfillQty,
+          },
+        });
+      }
+    }
+
+    // Set status
+    let newStatus: OrderStatus;
+    if (allFull) {
+      newStatus = "FULFILLED";
+    } else if (allZero) {
+      newStatus = "UNFULFILLED";
+    } else {
+      newStatus = "PARTIAL";
+    }
+
+    await tx.order.update({
+      where: { id: orderId },
+      data: { status: newStatus },
+    });
+  });
+
+  revalidatePath("/stores/[storeId]/orders", "page");
+  return { success: true, newStatus: order.status };
+}
+
+
+// Update existing updateOrderStatus to restrict manual changes (e.g., only allow UNFULFILLED or PENDING manually)
+export async function updateOrderStatus(orderId: string, newStatus: string) {
+  if (!["PENDING", "UNFULFILLED"].includes(newStatus)) {
+    throw new Error("Use fulfillment actions for FULFILLED or PARTIAL");
+  }
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { status: newStatus as OrderStatus },
+  });
+
+  revalidatePath("/stores/[storeId]/orders", "page");
 }

@@ -2,8 +2,8 @@
 import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { getAllStores } from "@/actions/admin.actions";
-import StoreManagementTable from "@/components/StoreManagementTable";
 import AddStoreDialog from "@/components/AddStoreDialog";
+import StoreManagementTable from "@/components/StoreManagementTable";
 
 export default async function AdminStoresPage() {
   const user = await currentUser();

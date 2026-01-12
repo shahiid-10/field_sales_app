@@ -24,13 +24,8 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
 
-// const formSchema = z.object({
-//   name: z.string().min(1, "Store name is required"),
-//   address: z.string().optional(),
-//   latitude: z.coerce.number().optional(),
-//   longitude: z.coerce.number().optional(),
-// });
 
 const formSchema = z.object({
   name: z.string().min(1, "Store name is required"),
@@ -53,24 +48,41 @@ export default function AddStoreDialog() {
     },
   });
 
+  // const onSubmit = async (data: z.infer<typeof formSchema>) => {
+  //   const formData = new FormData();
+  //   formData.append("name", data.name);
+  //   if (data.address) formData.append("address", data.address);
+  //   if (data.latitude !== undefined) formData.append("latitude", data.latitude.toString());
+  //   if (data.longitude !== undefined) formData.append("longitude", data.longitude.toString());
+
+  //   const result = await addStore(formData);
+
+  //   if (result.success) {
+  //     setMessage("Store added successfully!");
+  //     form.reset();
+  //     setTimeout(() => setOpen(false), 1500);
+  //   } else {
+  //     setMessage(result.error || "Failed to add store");
+  //   }
+  // };
+
   const onSubmit = async (data: z.infer<typeof formSchema>) => {
     const formData = new FormData();
     formData.append("name", data.name);
     if (data.address) formData.append("address", data.address);
-    if (data.latitude !== undefined) formData.append("latitude", data.latitude.toString());
-    if (data.longitude !== undefined) formData.append("longitude", data.longitude.toString());
+    if (data.latitude !== undefined) formData.append("latitude", String(data.latitude));
+    if (data.longitude !== undefined) formData.append("longitude", String(data.longitude));
 
-    const result = await addStore(formData);
+    const res = await addStore(formData);
 
-    if (result.success) {
-      setMessage("Store added successfully!");
+    if (res.success) {
+      toast.success("Store added");
       form.reset();
-      setTimeout(() => setOpen(false), 1500);
+      setOpen(false);
     } else {
-      setMessage(result.error || "Failed to add store");
+      toast.error(res.error ?? "Failed to add store");
     }
   };
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>

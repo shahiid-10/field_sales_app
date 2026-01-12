@@ -2,6 +2,8 @@
 'use server';
 
 import { prisma } from '@/lib/prisma';
+import { revalidatePath } from 'next/cache';
+import z from 'zod';
 
 export async function getStores() {
   try {
@@ -67,5 +69,62 @@ export async function getStoreWithStockPositions(storeId: string) {
   } catch (error) {
     console.error('Error fetching store:', error);
     throw error; 
+  }
+}
+
+const storeSchema = z.object({
+  name: z.string().min(1),
+  address: z.string().optional(),
+  latitude: z.number().optional(),
+  longitude: z.number().optional(),
+});
+
+export async function addStore(formData: FormData) {
+  try {
+    const data = storeSchema.parse({
+      name: formData.get("name"),
+      address: formData.get("address"),
+      latitude: formData.get("latitude") ? Number(formData.get("latitude")) : undefined,
+      longitude: formData.get("longitude") ? Number(formData.get("longitude")) : undefined,
+    });
+
+    await prisma.store.create({
+      data,
+    });
+
+    revalidatePath("/admin/stores");
+    return { success: true };
+  } catch (error) {
+    console.error(error);
+    return { success: false, error: "Failed to add store" };
+  }
+}
+
+export async function updateStore(storeId: string, data: z.infer<typeof storeSchema>) {
+  try {
+    await prisma.store.update({
+      where: { id: storeId },
+      data,
+    });
+
+    revalidatePath("/admin/stores");
+    return { success: true };
+  } catch (error) {
+    console.error(error);
+    return { success: false, error: "Failed to update store" };
+  }
+}
+
+export async function deleteStore(storeId: string) {
+  try {
+    await prisma.store.delete({
+      where: { id: storeId },
+    });
+
+    revalidatePath("/admin/stores");
+    return { success: true };
+  } catch (error) {
+    console.error(error);
+    return { success: false, error: "Failed to delete store (may have related orders/visits)" };
   }
 }

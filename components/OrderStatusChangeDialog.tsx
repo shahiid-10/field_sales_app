@@ -1,8 +1,7 @@
-// components/OrderStatusChangeDialog.tsx
 "use client";
 
-import { useState } from "react";
-import { updateOrderStatus } from "@/actions/order.actions";
+import { useState, useEffect } from "react";
+import { getOrderForFulfillment, processFulfillment, updateOrderStatus } from "@/actions/order.actions";
 import {
   Dialog,
   DialogContent,
@@ -20,66 +19,126 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { AlertCircle } from "lucide-react";
 
-interface OrderStatusChangeDialogProps {
+interface OrderItem {
+  productId: string;
+  productName: string;
+  requestedQty: number;
+  availableQty: number;
+}
+
+interface Props {
   orderId: string;
   currentStatus: string;
   storeId: string;
 }
 
-export default function OrderStatusChangeDialog({
-  orderId,
-  currentStatus,
-  storeId,
-}: OrderStatusChangeDialogProps) {
+export default function OrderStatusChangeDialog({ orderId, currentStatus, storeId }: Props) {
   const [open, setOpen] = useState(false);
   const [newStatus, setNewStatus] = useState(currentStatus);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  const [fulfilledQtys, setFulfilledQtys] = useState<Record<string, string>>({});
 
-  const handleUpdate = async () => {
+  const isFulfillmentMode = newStatus === "PARTIAL" || newStatus === "FULFILLED";
+
+  useEffect(() => {
+    if (!open) {
+      setOrderItems([]);
+      setFulfilledQtys({});
+      setError(null);
+      return;
+    }
+
+    if (isFulfillmentMode) {
+      const fetchData = async () => {
+        setLoading(true);
+        try {
+          const data = await getOrderForFulfillment(orderId);
+          setOrderItems(data.items);
+
+          const initial = data.items.reduce<Record<string, string>>((acc, item) => {
+            acc[item.productId] =
+              newStatus === "FULFILLED"
+                ? Math.min(item.requestedQty, item.availableQty).toString()
+                : "0";
+            return acc;
+          }, {});
+
+          setFulfilledQtys(initial);
+        } catch (err: any) {
+          setError(err.message || "Failed to load items");
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchData();
+    }
+  }, [open, isFulfillmentMode, newStatus, orderId]);
+
+  const handleQtyChange = (productId: string, value: string) => {
+    const item = orderItems.find((i) => i.productId === productId);
+    if (!item) return;
+
+    if (value === "" || value === "-") {
+      setFulfilledQtys((prev) => ({ ...prev, [productId]: "0" }));
+      return;
+    }
+
+    const num = Number(value);
+    if (Number.isNaN(num)) return;
+
+    const max = Math.min(item.requestedQty, item.availableQty);
+    if (num >= 0 && num <= max) {
+      setFulfilledQtys((prev) => ({ ...prev, [productId]: value }));
+    }
+  };
+
+  const handleConfirm = async () => {
     setLoading(true);
     setError(null);
 
-    const formData = new FormData();
-    formData.append("orderId", orderId);
-    formData.append("status", newStatus);
-
     try {
-      await updateOrderStatus(orderId, newStatus);
+      if (isFulfillmentMode) {
+        const qtys = Object.fromEntries(
+          Object.entries(fulfilledQtys).map(([k, v]) => [k, v === "" ? 0 : Number(v)])
+        );
+        await processFulfillment(orderId, qtys, newStatus === "FULFILLED");
+      } else {
+        await updateOrderStatus(orderId, newStatus);
+      }
       setOpen(false);
-      // Force refresh - in Next.js 14+ you can use router.refresh() instead
-    //   window.location.reload();
+      window.location.reload();
     } catch (err: any) {
-      setError(err.message || "Failed to update status");
+      setError(err.message || "Failed to update");
     } finally {
       setLoading(false);
     }
   };
 
-  const needsConfirmation = newStatus === "FULFILLED";
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
-          Change Status
+          Change
         </Button>
       </DialogTrigger>
 
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Update Order Status</DialogTitle>
-          <DialogDescription>
-            Change status for order <strong>{orderId.slice(0, 8)}...</strong>
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto p-5">
+        <DialogHeader className="pb-3">
+          <DialogTitle className="text-lg">Update Order</DialogTitle>
+          <DialogDescription className="text-sm">
+            Order <strong>{orderId.slice(0, 8)}...</strong>
           </DialogDescription>
         </DialogHeader>
 
-        <div className="py-4">
+        <div className="space-y-4 py-2">
           <Select value={newStatus} onValueChange={setNewStatus}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select new status" />
+            <SelectTrigger className="h-9">
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="PENDING">Pending</SelectItem>
@@ -88,36 +147,82 @@ export default function OrderStatusChangeDialog({
               <SelectItem value="UNFULFILLED">Unfulfilled</SelectItem>
             </SelectContent>
           </Select>
+
+          {isFulfillmentMode && (
+            <div className="space-y-4">
+              <h4 className="text-sm font-medium">Fulfill Quantities</h4>
+
+              {loading ? (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  Loading items...
+                </p>
+              ) : orderItems.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  No items
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {orderItems.map((item) => (
+                    <div
+                      key={item.productId}
+                      className="flex flex-col sm:flex-row sm:items-center gap-2 pb-3 border-b last:border-0"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">
+                          {item.productName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Req: {item.requestedQty} • Avail: {item.availableQty}
+                        </p>
+                      </div>
+
+                      <div className="w-20 sm:w-24">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={Math.min(item.requestedQty, item.availableQty)}
+                          value={fulfilledQtys[item.productId] ?? "0"}
+                          onChange={(e) => handleQtyChange(item.productId, e.target.value)}
+                          disabled={loading}
+                          className="h-8 text-center"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {needsConfirmation && (
-          <div className="bg-amber-50 border border-amber-200 p-4 rounded-md text-sm">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
-              <div>
-                <p className="font-medium text-amber-800">Confirmation Required</p>
-                <p className="text-amber-700">
-                  Marking as Fulfilled will complete this order permanently.
-                  <br />
-                  This action cannot be undone.
-                </p>
-              </div>
-            </div>
+        {error && (
+          <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 p-2.5 rounded-md">
+            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+            <span className="truncate">{error}</span>
           </div>
         )}
 
-        {error && <p className="text-destructive text-sm">{error}</p>}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)} disabled={loading}>
+        <DialogFooter className="pt-2 sm:pt-4 gap-2 sm:gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setOpen(false)}
+            disabled={loading}
+            className="flex-1 sm:flex-none p-2"
+          >
             Cancel
           </Button>
           <Button
-            onClick={handleUpdate}
-            disabled={loading || newStatus === currentStatus}
-            variant={needsConfirmation ? "destructive" : "default"}
+            size="sm"
+            onClick={handleConfirm}
+            disabled={
+              loading ||
+              newStatus === currentStatus ||
+              (isFulfillmentMode && (orderItems.length === 0 || loading))
+            }
+            className="flex-1 sm:flex-none p-2 "
           >
-            {loading ? "Updating..." : "Confirm Update"}
+            {loading ? "Processing..." : "Confirm"}
           </Button>
         </DialogFooter>
       </DialogContent>

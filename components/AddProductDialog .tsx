@@ -24,6 +24,8 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { useRouter } from "next/navigation";
+
 
 const formSchema = z.object({
   name: z.string().min(1, "Product name is required"),
@@ -34,7 +36,8 @@ const formSchema = z.object({
 export default function AddProductDialog() {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-
+  
+  const router = useRouter();
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -55,6 +58,9 @@ export default function AddProductDialog() {
     if (result.success) {
       setMessage("Product added successfully!");
       form.reset();
+
+       // This is the magic line 👇
+      // router.refresh();                 // ← Forces re-fetch of server components
       setTimeout(() => setOpen(false), 1500);
     } else {
       setMessage(result.error || "Failed to add product");
@@ -108,7 +114,7 @@ export default function AddProductDialog() {
                 <FormItem>
                   <FormLabel>MRP (₹)</FormLabel>
                   <FormControl>
-                    <Input type="number" step="0.01" {...field} />
+                    <Input type="number" {...field} onChange={(e) => field.onChange(Number(e.target.value))} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

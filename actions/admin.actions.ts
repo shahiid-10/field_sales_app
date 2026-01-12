@@ -12,6 +12,8 @@ const addProductSchema = z.object({
   mrp: z.coerce.number().positive("MRP must be positive"),
 });
 
+
+
 export async function addProduct(formData: FormData) {
   try {
     const data = addProductSchema.parse({
@@ -45,6 +47,59 @@ export async function addProduct(formData: FormData) {
     return { success: false, error: errorMessage };
   }
 }
+
+// export async function addProduct(formData: FormData) {
+//   try {
+
+//     console.log("📥 Raw FormData entries:");
+//     for (const [key, value] of formData.entries()) {
+//       console.log(`  ${key}: "${value}" (type: ${typeof value})`);
+//     }
+
+//     // Extract values safely first
+//     const raw = {
+//       name: formData.get("name")?.toString() ?? "",
+//       manufacturer: formData.get("manufacturer")?.toString() || undefined,
+//       mrp: formData.get("mrp")?.toString() ?? "",
+//     };
+
+//     console.log("Parsed raw values before Zod:");
+//     console.log("name:", JSON.stringify(raw.name));
+//     console.log("manufacturer:", JSON.stringify(raw.manufacturer));
+//     console.log("mrp (string):", JSON.stringify(raw.mrp));
+
+//     const data = addProductSchema.parse(raw);
+
+//     console.log("Zod validation passed! Parsed data:", data);
+
+//     await prisma.product.create({
+//       data: {
+//         name: data.name,
+//         manufacturer: data.manufacturer,
+//         mrp: data.mrp,
+//       },
+//     });
+
+//     revalidatePath("/admin/products");
+
+//     return { success: true, message: "Product added successfully" };
+//   } catch (error) {
+//     console.error("Add product failed:", error);
+
+//      let errorMessage = "Failed to add product";
+
+//     if (error instanceof z.ZodError) {
+//       console.log("Zod issues:", error.issues); // ← very useful!
+//       errorMessage = error.issues.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ");
+//     } else if (error instanceof Error) {
+//       errorMessage = error.message;
+//     }
+
+//     console.log("Final error message sent to client:", errorMessage);
+
+//     return { success: false, error: errorMessage };
+//   }
+// }
 
 export async function getAllProducts() {
   return await prisma.product.findMany({
