@@ -2,19 +2,28 @@
 import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, ShoppingCart, Package, Users } from "lucide-react";
+import { Calendar, ShoppingCart, Package, Users, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { getDashboardStats, getRecentActivities } from "@/actions/dashboard.actions";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHead,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { format } from "date-fns";
+import { RecentActivity } from "@/components/RecentActivity";
 
 export default async function DashboardPage() {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
 
-  // Dummy stats (replace with prisma later)
-  const todaysVisits = 8;
-  const todaysOrders = 5;
-  const pendingOrders = 3;
-  const activeSalesmen = 4;
+  const stats = await getDashboardStats();
+  const activities = await getRecentActivities(10); // Last 10 activities
 
   return (
     <div className="p-6">
@@ -33,7 +42,7 @@ export default async function DashboardPage() {
             <Calendar className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{todaysVisits}</div>
+            <div className="text-2xl font-bold">{stats.todaysVisits}</div>
           </CardContent>
         </Card>
 
@@ -43,7 +52,7 @@ export default async function DashboardPage() {
             <ShoppingCart className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{todaysOrders}</div>
+            <div className="text-2xl font-bold">{stats.todaysOrders}</div>
           </CardContent>
         </Card>
 
@@ -53,7 +62,7 @@ export default async function DashboardPage() {
             <Package className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{pendingOrders}</div>
+            <div className="text-2xl font-bold">{stats.pendingOrders}</div>
           </CardContent>
         </Card>
 
@@ -63,12 +72,12 @@ export default async function DashboardPage() {
             <Users className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{activeSalesmen}</div>
+            <div className="text-2xl font-bold">{stats.activeSalesmen}</div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Quick Links */}
+      {/* Quick Links & Recent Activity */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
@@ -89,7 +98,7 @@ export default async function DashboardPage() {
             <CardTitle>Recent Activity</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">Coming soon...</p>
+            <RecentActivity />
           </CardContent>
         </Card>
       </div>

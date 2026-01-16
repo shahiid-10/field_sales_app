@@ -3,6 +3,8 @@
 
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
+import { addDays, startOfDay } from "date-fns";
+
 import z from 'zod';
 
 export async function getStores() {
@@ -127,4 +129,117 @@ export async function deleteStore(storeId: string) {
     console.error(error);
     return { success: false, error: "Failed to delete store (may have related orders/visits)" };
   }
+}
+
+
+export async function getNearExpiryStores() {
+  const today = startOfDay(new Date());
+  const threshold = addDays(today, 7);
+
+  // Find stores that have at least one near-expiry stock position
+  const storesWithExpiry = await prisma.store.findMany({
+    where: {
+      stockPositions: {
+        some: {
+          quantity: { gt: 0 },
+          expiryDate: {
+            not: null,
+            lte: threshold,
+            gte: today, // optional: exclude already expired
+          },
+        },
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      _count: {
+        select: {
+          stockPositions: {
+            where: {
+              quantity: { gt: 0 },
+              expiryDate: {
+                not: null,
+                lte: threshold,
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return storesWithExpiry.map((s) => ({
+    storeId: s.id,
+    storeName: s.name,
+    nearExpiryCount: s._count.stockPositions,
+  }));
+}
+
+export async function getNearExpiryProductsForStore(storeId: string) {
+  const today = startOfDay(new Date());
+  const threshold = addDays(today, 7);
+
+  return prisma.stockPosition.findMany({
+    where: {
+      storeId,
+      quantity: { gt: 0 },
+      expiryDate: {
+        not: null,
+        lte: threshold,
+      },
+    },
+    select: {
+      id: true,
+      product: { select: { name: true } },
+      quantity: true,
+      expiryDate: true,
+      batchNumber: true,
+    },
+    orderBy: { expiryDate: "asc" },
+  });
+}
+
+export async function getNearExpiryCountPerStore() {
+  const today = startOfDay(new Date());
+  const threshold = addDays(today, 7);
+
+  const storesWithExpiry = await prisma.store.findMany({
+    where: {
+      stockPositions: {
+        some: {
+          quantity: { gt: 0 },
+          expiryDate: {
+            not: null,
+            lte: threshold,
+            // gte: today,  // optional: exclude already expired
+          },
+        },
+      },
+    },
+    select: {
+      id: true,
+      _count: {
+        select: {
+          stockPositions: {
+            where: {
+              quantity: { gt: 0 },
+              expiryDate: {
+                not: null,
+                lte: threshold,
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return storesWithExpiry.reduce(
+    (acc, s) => {
+      acc[s.id] = s._count.stockPositions;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
 }
